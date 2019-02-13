@@ -1,0 +1,1731 @@
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=windows-1252"><title>N4038, Proposal for Unbounded-Precision Integer Types</title></head><body>
+
+<center>
+<h1><a name="N4038, Proposal for Unbounded-Precision Integer Types">Proposal for Unbounded-Precision Integer Types</a></h1>
+</center>
+
+<table cellspacing="0" cellpadding="0" align="RIGHT">
+<tbody><tr>
+<td align="RIGHT"><b><i>Document number:</i></b></td>
+<td>&nbsp; N4038</td>
+</tr>
+<tr>
+<td align="RIGHT"><b><i>Date:</i></b></td>
+<td>&nbsp; 2014-05-23</td>
+</tr>
+<tr>
+<td align="RIGHT"><b><i>Revises:</i></b></td>
+<td>&nbsp; N3965</td>
+</tr>
+<tr>
+<td align="RIGHT"><b><i>Project:</i></b></td>
+<td>&nbsp; Programming Language C++</td>
+</tr>
+<tr>
+<td align="RIGHT"><b><i>Reference:</i></b></td>
+<td>&nbsp; ISO/IEC IS 14882:2011(E)</td>
+</tr>
+<tr>
+<td align="RIGHT"><b><i>Reply to:</i></b></td>
+<td>&nbsp; Pete Becker</td>
+</tr>
+<tr>
+<td></td>
+<td>&nbsp; Roundhouse Consulting, Ltd.</td>
+</tr>
+<tr>
+<td></td>
+<td>&nbsp; pete@versatilecoding.com</td>
+</tr>
+</tbody></table>
+<br clear="ALL">
+
+<hr>
+
+<h2><a name="What’s New in this Revision">What’s New in this Revision</a></h2>
+
+<ul>
+<li>In <code>integer</code>, replaced constructors taking arithmetic types with
+a templated constructor and added a templated assignment operator for arithmetic types.
+In <code>bits</code>, replaced constructors taking integral types with a
+templated constructor and added a templated assignment operator for integral types.</li>
+
+<li>Added <code>integer::is_zero</code>.</li>
+
+<li>Added <code>noexcept</code> to unary <code>integer::operator-</code> and
+unary <code>integer::operator+</code>.</li>
+
+<li>Added several issues raised by Marc Glisse.</li>
+
+</ul>
+
+<h2><a name="Overview">Overview</a></h2>
+
+<p>Programmers sometimes need to manipulate integer values that are too large to
+repesent with C++’s standard integer types. Doing a Google search for
+terms that describe large integers produces many hits for libraries that handle
+large integers. These libraries vary in quality, from hacks by beginners to
+sophisticated, professional implementations. Also, Java has unbounded precision
+integers as part of its standard class library.</p>
+
+<p>One important use for unbounded-precision integers is cryptography.
+Cryptographic applications typically manipulate integer values of several
+hundred digits. If the C++ standard library provides facilities for such values
+it will make cryptographic applications easier to write and to port.</p>
+
+<p>There have been two Committee papers proposing unbounded-precision integer
+libraries for C++: N1718 (2004) and N2143 (2007), both by M.J. Kronenburg.
+Nothing was done with these papers, in part because there was too much else
+going on in the Library Working Group at the time. Now that the Committee is
+looking to greatly expand the scope of the standard library, it’s time to
+reconsider unbounded-precision integers.</p>
+
+<h2><a name="Design considerations">Design considerations</a></h2>
+
+<p>An <i>unbounded-precision integer type</i> is an integer type that does not
+impose pre-defined limits on the precision of the values that it can represent.
+Of course, in practice, unbounded precision can’t be achieved; sooner or
+later the system runs out of resources. So <i>unbounded</i> in this context
+means bounded only by the availability of system resources; there is no
+hard-coded limit to the number of digits in the value that an
+unbounded-precision integer type can represent.</p>
+
+<p>Unbounded-precision integer types should <i>interoperate</i> with C++’s
+built-in integer types. Applying arithmetic operations to a mix of standard
+integer types and unbounded-precision integer types should just work. And to the
+extent possible, operations that can be applied to standard integer types should
+also be applicable, using the same syntax, to unbounded-precision integer
+types.</p>
+
+<p>Unbounded-precision integer types should also provide operations that
+facilitate their use in areas that demand such types. Since
+there is a potentially unbounded list of operations that could be useful
+in applications that need unbounded-precision integer types, it is not
+practical to provide every useful operation. This proposal presents a small
+set of required operations and provides a facility for users to write their own
+extensions. </p>
+
+<h2><a name="Design overview">Design overview</a></h2>
+
+<p>This paper proposes two unbounded-precision integer types.
+The type
+<code>integer</code> represents signed integer values.
+The type
+<code>bits</code> represents an unbounded set of bit values.</p>
+
+
+<p>To support interoperability, objects of either type can be constructed from
+values of any of the standard integer types. So code like this just works:</p>
+
+<code><pre>    integer i = 30000;
+    integer j = 1000 * i;
+
+    bits b = 0xFF;
+    bits c = b &amp; 0xAA;</pre></code>
+
+<p>Converting a negative number to an object of type
+<code>bits</code> sets the number to the complement of
+this initializer, so this code just works:</p>
+
+<code><pre>    bits b = -3; // sets <code>b</code> to ...11111100</pre></code>
+
+<p>This is easily implemented by storing a finite set of 1 bits (in this case, <code>0x03</code>) and using a flag
+to indicate whether the actual value is represented by that set of bits or by
+its complement.</p>
+
+<p>As currently specified, neither <code>integer</code> nor
+<code>bits</code> provides overloaded operators that take standard integer
+types. When an operation is applied to a standard integer type and an
+<code>integer</code> object or a <code>bits</code> object, the standard integer
+operand is converted to the appropriate unbounded-precision integer type and the
+operation is applied to the result. It is assumed that implementations will make
+this kind of mixed operation efficient by implementing a small-integer
+optimization, storing small values directly in the <code>integer</code>
+or <code>bits</code> object, and using heap storage when needed for larger
+values. This greatly simplifies the interface specification.</p>
+
+<p>Objects of these types can be constructed from string representations
+(with the usual range of possible bases) and from an initializer list that holds
+unsigned 32-bit values.</p>
+
+<p>Objects of type <code>integer</code> can also be constructed from values of floating-point
+types.</p>
+
+<p>Values of type <code>integer</code> and of type <code>bits</code> can be
+freely inter-converted.</p>
+
+<p>Bit manipulations on <code>bits</code> objects treat the value as
+having an unbounded number of bits above the highest bit stored in the
+object. As a result, the usual bit operations, &amp;, |, and ^, can be applied to
+values of different sizes. Further, <code>std::seminumeric::bits</code> can be used as
+a replacement for <code>std::bitset</code>  when limiting the object
+to a fixed number of bits is undesirable.</p>
+
+<h2><a name="Issues">Issues</a></h2>
+
+<h3><a name="Open Issues">Open Issues</a></h3>
+<ul>
+
+<li><b>1.</b> <b>Allocators</b> -- unbounded-precision integer types need to manage memory
+on the free store to hold their data. This suggests that users should be able to
+specify an allocator. But templatizing these types on an allocator would require
+that all of the arithmetic operations provide overloads for all of the standard
+integer types, because function template instantiation requires exact type
+matches, without conversions.</li>
+
+<li><b>5.</b> <i>[new in N3417]</i> <b>Rvalue overloads for arithmetic operations</b> (Joe Gottman) -- many of the
+operations on the unbounded-precision types can be made more efficient by providing
+overloaded versions that take rvalue references. For example:
+
+<pre><code>integer operator+(integer&amp;&amp; lhs, const integer&amp; rhs) {
+    return std::move(lsh += rhs);
+}</code></pre>
+</li>
+
+<li><b>7.</b> <i>[new in N3417]</i> <b>Support user-defined literals</b> (Alisdair
+Meredith, Marc Glisse) -- obviously useful, but users might expect them to be
+<code>constexpr</code>, which they cannot, in general, be, because they need
+to allocate memory.</li>
+
+<li><b>9.</b> <i>[new in N3417]</i> <b>Add <code>constexpr</code> specifications as appropriate</b>
+(Alisdair Meredith) -- although most functions can allocate memory, there are a few that
+could be marked <code>constexpr</code>. It’s not clear how useful this would be.</li>
+
+<li><b>12.</b> <i>[new in N3417]</i> <b>Converting to a string could use a mechanism for providing an allocator</b>
+(Alisdair Meredith) -- for example,
+
+<pre><code>template&lt;class charT, class Traits, class Alloc&gt;
+void bits::load(basic_string&lt;charT, Traits, Alloc&gt;&amp;);</code></pre></li>
+
+<li><b>14.</b> <i>[new in N3417]</i> <b><code>powmod</code>
+should be specified to run in constant time with identical cache access patterns
+for arguments of the same size</b> (Jack Lloyd) -- this is important for cryptographic
+purposes, to avoid side-channel attacks. <b>Marc Glisse</b>: Please no. Side-channel silent operations belong in a
+separate proposal, with separate functions. Most applications
+prefer an operation with a running time that can vary between 1 and
+5 to an operation with running time 20. Now feel free to either
+propose an integer_sec type or powmod_sec etc variants of all the
+operations, but note also that in crypto the size is often known at
+compile-time, so a dynamically-sized type may not be the best.</li>
+
+
+<li><b>15.</b> <i>[new in N3417]</i> <b>Need functions to interconvert with byte arrays</b> (Jack Lloyd) --
+quite a common need in cryptographic operations.</li>
+
+<li><b>18.</b> <i>[new in N3417]</i> <b>Rounding of divisions and right shifts needs to be specified.</b>
+(Marc Glisse) -- even if it’s obvious. Also, does <code>mod</code> return negative values?</li>
+
+<li><b>24.</b> <i>[new in N3965]</i> <b>Provide interoperability with fixed point.</b></li>
+
+<li><b>25.</b> <i>[new in N3965]</i> <b>What happens when <code>integer_data_proxy::operator[]</code>
+is called with an index that is out of bounds?</b></li>
+
+<li><b>26.</b> <i>[new in N4038]</i> <b>Should <code>bits</code> objects initialized with negative values
+hold the twos-complement representation instead of the ones-complement?</b> (Jean-Marc Bourguet)</li>
+
+<li><b>27.</b> <i>[new in N4038]</i> <b>Should <code>integer::to_string</code> convert to a templated
+<code>basic_string</code> instead of <code>std::string</code>?</b></li>
+
+<li><b>28.</b> <i>[new in N4038]</i> <b>Should <code>bits</code> support expression templates? Should
+expression template support be dropped?</b> (Marc Glisse)</li>
+
+<li><b>29.</b> <i>[new in N4038]</i> <b>Should small-object optimization requirement allow stealing a
+bit to indicate whether it is in use (i.e., reduce required value range for this optimization)?</b>
+(Marc Glisse)</li>
+
+<li><b>30.</b> <i>[new in N4038]</i> <b>
+No integer+int because of the small number optimization: could we
+mention (in a note?) if it is acceptable to provide those hundreds
+of overloads? It can make make some code ambiguous, so it isn't "as
+if".</b> (Marc Glisse)</li>
+
+<li><b>31.</b> <i>[new in N4038]</i> <b><code>div</code> should return an
+<code>integer_div_t</code> with members quot and rem.</b>
+(Marc Glisse)</li>
+
+<li><b>32.</b> <i>[new in N4038]</i> <b> <code>sqrt</code>: if you want many functions,
+you could add <code>sqrtrem</code> that also
+returns the remainder. Also, factorial, binomial coefficients.</b> (Marc Glisse)</li>
+
+<li><b>33.</b> <i>[new in N4038]</i> <b>Is overflow behavior specified in any way?</b>
+(Marc Glisse)</li>
+
+<li><b>34.</b> <i>[new in N4038]</i> <b> Why forbid explicit cast to int?
+If I have an integer and want to know if it fits into a long long, I
+should cast it inside try-catch. The cast itself will be implemented
+as <code>if(fits)cast;else throw;</code>. So I am going to have to throw and
+catch an exception just to know if it fits. I hope that some day
+compilers will be able to optimize away exceptions in such trivial
+cases, but it isn't the case yet with those I tried. In the mean
+time, a function <code>i.fits&lt;int&gt;()</code> could help.</b> (Marc Glisse)</li>
+
+<li><b>35.</b> <i>[new in N4038]</i> <b> What operations are guaranteed to be done in-place, i.e. what's the
+point of capacity/reserve?</b> (Marc Glisse)</li>
+
+<li><b>36.</b> <i>[new in N4038]</i> <b>Does <code>gcd</code> always return a non-negative number?</b> (Marc Glisse)</li>
+
+<li><b>37.</b> <i>[new in N4038]</i> <b> <code>integer(numeric_limits<double>::infinity())</double></code>: does it throw
+something? (I assume that's why there is no "noexcept")</b> (Marc Glisse)</li>
+
+<li><b>38.</b> <i>[new in N4038]</i> <b><code>operator long double</code>: if type long double has no infinity, use max
+(from numeric_limits) instead?</b> (Marc Glisse) <b>(PJB):</b> or maybe <code>HUGE_VALL</code>?</li>
+
+<li><b>39.</b> <i>[new in N4038]</i> <b><code>pow</code>: 0^0 is 1?</b> (Marc Glisse)</li>
+
+<li><b>40.</b> <i>[new in N4038]</i> <b><code>integer_data_proxy::size</code> and
+<code>integer_data_proxy::capacity</code>
+should return the number of words in the sequence.</b> (Marc Glisse)</li>
+
+<li><b>41.</b> <i>[new in N4038]</i> <b>is element access through <code>integer_data_proxy</code>
+big endian or little endian?</b> (Marc Glisse) <b>(PJB:)</b> little endian. Needs to be specified.</li>
+
+<li><b>42.</b> <i>[new in N4038]</i> <b>should remove access to internals of <code>integer</code>.</b>
+(Marc Glisse)</li>
+
+<li><b>43.</b> <i>[new in N4038]</i> <b>should bits have a data_proxy interface, like integer_data_proxy?
+or iteration?</b> (Marc Glisse)</li>
+
+<li><b>44.</b> <i>[new in N4038]</i> <b><code>bits::capacity</code>: "number of bits that the object can represent": it
+represents an infinite number of bits Maybe make it more precise?</b> (Marc Glisse)</li>
+
+<li><b>45.</b> <i>[new in N4038]</i> <b>There are still some <code>std::string</code> (not templated) around.</b>
+(Marc Glisse)</li>
+
+<li><b>46.</b> <i>[new in N4038]</i> <b>Should <code>bits</code> have conversions to/from
+<code>std::bitset</code> and <code>std::vector&lt;bool&gt;</code>?</b> (Marc Glisse)</li>
+
+</ul>
+
+<h3><a name="Issues Closed in N4038">Issues Closed in N4038</a></h3>
+<ul>
+
+</ul>
+
+<h3><a name="Issues Closed Prior to N4038">Issues Closed Prior to N4038</a></h3>
+<ul>
+
+<li><b>2.</b> <i>[resolved in N3542]</i> <b>Policy for out-of-bounds subtraction</b> -- subtracting an
+<code>unsigned_integer</code> value from a smaller value doesn’t have any specified semantics in
+this paper. This should probably throw an exception. <i>Resolution:</i> removed <code>unsigned_integer</code>.
+The replacement type <code>bits</code> does not provide arithmetic operations.</li>
+
+<li><b>3.</b> <i>[resolved in N3542]</i> <b>Policy for out-of-bounds constructor arguments</b> -- constructing a
+<code>bits</code> object from a negative value doesn’t have
+any specified semantics in this paper. This should probably throw an
+exception. <i>Resolution:</i> negative values produce complemented bit sets.</li>
+
+<li><b>4.</b> <i>[resolved in N3965]</i> <b>Policy for lossy conversions</b> -- converting an object of type
+<code>bits</code> or <code>integer</code> to an integral type
+that cannot represent its value doesn’t have any specified semantics in
+this paper. Should this throw an exception? <i>Resolution:</i> conversions of values that cannot
+be represented in the target type throw an exception of type <code>std::range_error</code>.</li>
+
+<li><b>6.</b> <i>[resolved in N3965]</i><i>[new in N3417]</i> <b>Functions for controlling when and how allocations occur</b> (Joe Gottman) --
+just as with <code>std::string</code>, many operations can be made faster by pre-allocating enough
+memory to hold the expected result. In some cases the desired capacity is best expressed in bits and
+in some cases in decimal digits, so the suggestion is to offer both. <i>Resolution:</i> <code>integer</code>
+capacities are expressed in decimal digits (but <code>integer_data_proxy</code> capacity is in number of internal data elements; does this make sense?); <code>bits</code> capacities are expressed in number of bits.
+
+<pre><code>size_t capacity_in_bits() const;   // The number of bits the object can hold without reallocation.
+size_t capacity_in_digits() const; // The largest number n such that the object can hold n decimal
+                                   // digits without reallocation.
+void reserve_bits(size_t n);       // Postcondition: capacity_in_bits() &gt;= n.
+void reserve_digits(size_t n);     // Postcondition: capacity_in_digits() &gt;= n.
+void shrink_to_fit()();            // A non-binding request to reduce memory usage.</code></pre>
+</li>
+
+<li><b>8.</b> <i>[resolved in N3965]</i> <i>[new in N3417]</i> <b>Add <code>noexcept</code> specifications as appropriate</b>
+(Alisdair Meredith) -- there are several that are obvious. In addition, if we require the
+small-object optimization, some or all of the constructors that take integral types can be
+<code>noexcept</code>. <i>Resolution:</i> added <code>noexcept</code>; constructors that take integral types
+are marked <code>noexcept</code>, implying a small-object optimization.</li>
+
+<li><b>10.</b> <i>[resolved in N3965]</i> <i>[new in N3417]</i> <b>Why do the bitshift operators take an <code>int</code> argument?</b>
+(Alisdair Meredith, Marc Glisse) -- this may be limiting, for example, on a 64-bit OS with a 32-bit
+<code>int</code> type. <code>size_t</code> or <code>ptrdiff_t</code> may be a better choice.
+<i>Resolution:</i> shift operators take an argument of type <code>size_t</code>.</li>
+
+<li><b>11.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>Why just one string type
+for string conversions?</b> (Alisdair Meredith) -- there are four standard
+<code>basic_string</code> typedefs. <i>Resolution:</i> string operations are now fully
+templated.</li>
+
+<li><b>13.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>Consider extending interface to more
+fully support dynamic bitsets</b> (Alisdair Meredith) -- or maybe that should be a separate
+class, with shared implementation. <i>Resolution</i>: changed <code>unsigned_integer</code>
+to <code>bits</code> with same interface as <code>std::bitset</code>.</li>
+
+<li><b>16.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>Add a typedef that gives the
+underlying representation type and an accessor that provides a pointer to the internal
+representation.</b> (Jack Lloyd) -- some common cryptographic algorithms can’t
+be implemented with the interface in the proposal; adding these accessors makes it
+possible to implement them. <i>Resolution:</i> added class <code>integer_data_proxy</code>.</li>
+
+<li><b>17.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>Is
+the <code>unsigned_integer</code> type necessary?</b> (Marc Glisse) -- if this is there
+to support bit manipulation, why not just specify those operations as undefined for
+negative numbers. <i>Resolution:</i> removed <code>unsigned_integer</code> and added
+<code>bits</code>, whose sole purpose is bit manipulation.</li>
+
+<li><b>19.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>The constructor that takes a
+<code>string</code> should be explicit.</b> (Marc Glisse) <i>Resolution:</i> done.</li>
+
+<li><b>20.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>Consider making
+<code>to_string()</code> a non-member function.</b> (Daniel Krügler)
+-- this would be a good match with the existing <code>to_string</code> functions.
+<i>Resolution:</i> done for <code>integer</code>; <code>bits</code> has it as a
+member to match <code>std::bitset</code>.</li>
+
+<li><b>21.</b> <i>[resolved in N3542]</i> <i>[new in N3417]</i> <b>Consider removing
+<code>explicit operator std::string() const</code>.</b> (Daniel Krügler,
+Jens Maurer) -- <code>to_string()</code> is sufficient. <i>Resolution:</i> done.</li>
+
+<li><b>22.</b> <i>[resolved in N3965]</i> <i>[new in N3965]</i> <b>Restore <code>mod</code>, <code>mulmod</code>, <code>powmod</code>,
+<code>gcd</code>, <code>lcm</code>.</b> <i>Resolution:</i> done.</li>
+
+<li><b>23.</b> <i>[resolved in N3965]</i> <i>[new in N3965]</i> <b>Ensure that requirements do not preclude
+implementation with expression templates.</b>
+<i>Resolution:</i> done, as suggested in the Bristol minutes, except that the second sentence is not included: the
+class <code>integer</code> in not a template.</li>
+
+</ul>
+
+
+<h2><a name="header_seminumeric">Header <code>&lt;seminumeric&gt;</code>
+synopsis</a></h2>
+
+<pre><code>namespace std {
+namespace experimental {
+namespace seminumeric {
+
+/* class integer */
+
+    class <a href="#class_integer">integer</a>;
+    class <a href="#class_integer_data_proxy">integer_data_proxy</a>;
+
+    void <a href="#integer::swap">swap</a>(integer&amp; lhs, integer&amp; rhs) noexcept;
+
+    // comparisons
+    bool <a href="#integer::operator==">operator==</a>(const integer&amp; lhs, const integer&amp; rhs) noexcept;
+    bool <a href="#integer::operator!=">operator!=</a>(const integer&amp; lhs, const integer&amp; rhs) noexcept;
+    bool <a href="#integer::operator&lt;">operator&lt;</a>(const integer&amp; lhs, const integer&amp; rhs) noexcept;
+    bool <a href="#integer::operator&lt;=">operator&lt;=</a>(const integer&amp; lhs, const integer&amp; rhs) noexcept;
+    bool <a href="#integer::operator&gt;">operator&gt;</a>(const integer&amp; lhs, const integer&amp; rhs) noexcept;
+    bool <a href="#integer::operator&gt;=">operator&gt;=</a>(const integer&amp; lhs, const integer&amp; rhs) noexcept;
+
+    // arithmetic operations
+    integer <a href="#integer::operator+">operator+</a>(const integer&amp; lhs, const integer&amp; rhs);
+    integer <a href="#integer::operator-">operator-</a>(const integer&amp; lhs, const integer&amp; rhs);
+    integer <a href="#integer::operator*">operator*</a>(const integer&amp; lhs, const integer&amp; rhs);
+    integer <a href="#integer::operator/">operator/</a>(const integer&amp; lhs, const integer&amp; rhs);
+    integer <a href="#integer::operator%">operator%</a>(const integer&amp; lhs, const integer&amp; rhs);
+
+    std::pair&lt;integer, integer&gt; <a href="#integer::div">div</a>(const integer&amp; lhs, const integer&amp; rhs);
+
+    integer <a href="#integer::abs">abs</a>(const integer&amp; val);
+
+    integer <a href="#integer::operator&lt;&lt;">operator&lt;&lt;</a>(const integer&amp; lhs, size_t rhs);
+    integer <a href="#integer::operator&gt;&gt;">operator&gt;&gt;</a>(const integer&amp; lhs, size_t rhs);
+
+    // numeric operations
+    integer <a href="#integer::sqr">sqr</a>(const integer&amp; val);
+    integer <a href="#integer::sqrt">sqrt</a>(const integer&amp; val);
+    integer <a href="#integer::pow">pow</a>(const integer&amp; val, const integer&amp; exp);
+    integer <a href="#integer::mod">mod</a>(const integer&amp; lhs, const integer&amp; rhs);
+    integer <a href="#integer::mulmod">mulmod</a>(const integer&amp; lhs, const integer&amp; rhs, const integer&amp; m);
+    integer <a href="#integer::powmod">powmod</a>(const integer&amp; lhs, const integer&amp; rhs, const integer&amp; m);
+
+    integer <a href="#integer::gcd">gcd</a>(const integer&amp; a, const integer&amp; b);
+    integer <a href="#integer::lcm">lcm</a>(const integer&amp; a, const integer&amp; b);
+
+
+    // conversions
+    std::string <a href="#integer::to_string">to_string</a>(const integer&amp; val, int radix = 10);
+
+    // I/O operations
+    template &lt;class CharT, class Traits&gt;
+        std::basic_ostream&lt;CharT, Traits&gt;&amp; <a href="#integer::operator&lt;&lt;">operator&lt;&lt;</a>(
+            std::basic_ostream&lt;CharT, Traits&gt;&amp; str, const integer&amp; val);
+    template &lt;class CharT, class Traits&gt;
+        std::basic_istream&lt;CharT, Traits&gt;&amp; <a href="#integer::operator&gt;&gt;">operator&gt;&gt;</a>(
+            std::basic_istream&lt;CharT, Traits&gt;&amp; str, integer&amp; val);
+
+/* class bits */
+
+    class <a href="#class_bits">bits</a>;
+
+    void <a href="#bits::swap">swap</a>(bits&amp; lhs, bits&amp; rhs) noexcept;
+
+    // logical operations
+    bits <a href="#bits::operator&amp;">operator&amp;</a>(const bits&amp; lhs, const bits&amp; rhs);
+    bits <a href="#bits::operator|">operator|</a>(const bits&amp; lhs, const bits&amp; rhs);
+    bits <a href="#bits::operator^">operator^</a>(const bits&amp; lhs, const bits&amp; rhs);
+
+    // I/O operations
+    template &lt;class CharT, class Traits&gt;
+        std::basic_ostream&lt;CharT, Traits&gt;&amp; <a href="#bits::stream_operator&lt;&lt;">operator&lt;&lt;</a>(
+            std::basic_ostream&lt;CharT, Traits&gt;&amp; str, const bits&amp; val);
+    template &lt;class CharT, class Traits&gt;
+        std::basic_istream&lt;CharT, Traits&gt;&amp; <a href="#bits::stream_operator&gt;&gt;">operator&gt;&gt;</a>(
+            std::basic_istream&lt;CharT, Traits&gt;&amp; str, bits&amp; val);
+
+} /* namespace seminumeric */
+} /* namespace experimental */
+
+template &lt;class Ty&gt; class <b>numeric_limits</b>;
+template &lt;&gt; class <b>numeric_limits&lt;experimental::seminumeric::integer&gt;</b>;
+
+template &lt;class Ty&gt; class <b>hash</b>;
+template &lt;&gt; class <b>hash&lt;experimental::seminumeric::integer&gt;</b>;
+template &lt;&gt; class <b>hash&lt;experimental::seminumeric::bits&gt;</b>;
+
+} /* namespace std */
+</code></pre>
+
+<h2><a name="class_integer">Class <code>integer</code></a></h2>
+
+<pre><code>class <b>integer</b> {
+public:
+
+    // constructors
+    <a href="#integer::integer">integer</a>() noexcept;
+
+    template &lt;class Ty&gt;
+        <a href="#integer::integer">integer</a>(Ty rhs) noexcept; // arithmetic types only
+
+    <a href="#integer::integer">integer</a>(std::initializer_list&lt;uint_least32_t&gt; init);
+
+    template &lt;class CharT, class Traits, class Alloc&gt;
+        explicit <a href="#integer::integer">integer</a>(const std::basic_string&lt;CharT, Traits, Alloc&gt;&amp; str);
+
+    explicit <a href="#integer::integer">integer</a>(const bits&amp; rhs);
+    explicit <a href="#integer::integer">integer</a>(bits&amp;&amp; rhs);
+
+    <a href="#integer::integer">integer</a>(const integer&amp; rhs);
+    <a href="#integer::integer">integer</a>(integer&amp;&amp; rhs) noexcept;
+
+    // assign and swap
+    template &lt;class Ty&gt;
+        integer&amp; <a href="#integer::operator=">operator=</a>(Ty rhs);   // arithmetic types only
+    integer&amp; <a href="#integer::operator=">operator=</a>(const bits&amp; rhs);
+    integer&amp; <a href="#integer::operator=">operator=</a>(bits&amp;&amp; rhs);
+    integer&amp; <a href="#integer::operator=">operator=</a>(const integer&amp; rhs);
+    integer&amp; <a href="#integer::operator=">operator=</a>(integer&amp;&amp; rhs);
+    void <a href="#integer::swap">swap</a>(integer&amp; rhs) noexcept;
+
+    // conversions
+    explicit <a href="#integer::operator long long">operator long long</a>() const;
+    explicit <a href="#integer::operator unsigned long long">operator unsigned long long</a>() const;
+    explicit <a href="#integer::operator long double">operator long double</a>() const noexcept;
+    explicit <a href="#integer::operator bool">operator bool</a>() const noexcept;
+
+    // comparisons
+    int <a href="#integer::compare">compare</a>(const integer&amp; rhs) const noexcept;
+
+    // arithmetic operations
+    integer&amp; <a href="#integer::operator+=">operator+=</a>(const integer&amp; rhs);
+    integer&amp; <a href="#integer::operator-=">operator-=</a>(const integer&amp; rhs);
+    integer&amp; <a href="#integer::operator*=">operator*=</a>(const integer&amp; rhs);
+    integer&amp; <a href="#integer::operator/=">operator/=</a>(const integer&amp; rhs);
+    integer&amp; <a href="#integer::operator%=">operator%=</a>(const integer&amp; rhs);
+
+    integer&amp; <a href="#integer::operator++">operator++</a>();
+    integer <a href="#integer::operator++">operator++</a>(int);
+    integer&amp; <a href="#integer::operator--">operator--</a>();
+    integer <a href="#integer::operator--">operator--</a>(int);
+
+    integer <a href="#integer::div">div</a>(const integer&amp; rhs);
+
+    integer&amp; <a href="#integer::abs">abs</a>() noexcept;
+    integer&amp; <a href="#integer::negate">negate</a>() noexcept;
+    integer <a href="#integer::operator+">operator+</a>() const noexcept;
+    integer <a href="#integer::operator-">operator-</a>() const noexcept;
+
+    integer&amp; <a href="#integer::operator&lt;&lt;=">operator&lt;&lt;=</a>(size_t rhs);
+    integer&amp; <a href="#integer::operator&gt;&gt;=">operator&gt;&gt;=</a>(size_t rhs);
+
+    // numeric operations
+    integer&amp; <a href="#integer::sqr">sqr</a>();
+    integer&amp; <a href="#integer::sqrt">sqrt</a>();
+    integer&amp; <a href="#integer::pow">pow</a>(const integer&amp; exp);
+    integer&amp; <a href="#integer::mod">mod</a>(const integer&amp; rhs);
+    integer&amp; <a href="#integer::mulmod">mulmod</a>(const integer&amp; rhs, const integer&amp; m);
+    integer&amp; <a href="#integer::powmod">powmod</a>(const integer&amp; exp, const integer&amp; m);
+
+    // observers
+    bool <a href="#integer::is_zero">is_zero</a>() const noexcept;
+    bool <a href="#integer::is_odd">is_odd</a>() const noexcept;
+
+    // accessors
+    integer_data_proxy <a href="#integer::get_data_proxy">get_data_proxy</a>();
+
+    // capacity
+    size_t <a href="#integer::size">size</a>() const noexcept;
+    size_t <a href="#integer::capacity">capacity</a>() const noexcept;
+    void <a href="#integer::reserve">reserve</a>(size_t digits);
+    void <a href="#integer::shrink_to_fit">shrink_to_fit</a>();
+};
+</code></pre>
+
+<p>The class describes an object that manages an unbounded-precision signed integral type
+that can be used in most contexts where an <code>int</code> could be used.</p>
+
+<p>Any function specified to return an object of type <code>integer</code> may return an object of
+another type, provided all the const member functions of the class <code>integer</code> are
+also applicable to that type.</p>
+
+<b><a name="integer::abs">abs</a></b>
+
+<code><pre>integer <b>abs</b>(const integer&amp; other);
+integer&amp; <b>integer::abs</b>() noexcept;</pre></code>
+
+<p>The first function returns an object that holds the absolute value of
+<code>other</code>. The second function sets the stored value of
+<code>*this</code> to its absolute value and returns
+<code>*this</code>.</p>
+
+<b><a name="integer::capacity">capacity</a></b>
+
+<code><pre>size_t <b>integer::capacity</b>() const noexcept;</pre></code>
+
+<p>The member function returns the number of decimal digits that the object can represent without
+reallocating its internal storage.</p>
+
+<b><a name="integer::compare">compare</a></b>
+
+<code><pre>int <b>integer::compare</b>(const integer&amp; rhs) const noexcept;</pre></code>
+
+<p>The member function returns a value less than 0 if <code>*this</code> is less than
+<code>rhs</code>, 0 if <code>*this</code> is equal to <code>rhs</code>, and greater than 0
+if <code>*this</code> is greater than <code>rhs</code>.</p>
+
+<b><a name="integer::div">div</a></b>
+
+<code><pre>std::pair&lt;integer, integer&gt; <b>div</b>(const integer&amp; lhs, const integer&amp; rhs);
+integer <b>integer::div</b>(const integer&amp; rhs) const;</pre></code>
+
+<p>The first function returns an object that is an instantiation of
+<code>std::pair</code>; its <code>first</code> field holds the quotient,
+<code>lhs / rhs</code>, and its
+<code>second</code> field holds the remainder, <code>lhs % rhs</code>.</p>
+
+<p>The second function
+returns the remainder, <code>*this % rhs</code>, and
+stores the quotient, <code>*this / rhs</code>, into
+<code>*this</code></p>
+
+<b><a name="integer::gcd">gcd</a></b>
+
+<code><pre>integer <b>gcd</b>(const integer&amp; a, const integer&amp; b);</pre></code>
+
+<p>The function returns an object whose value is the greatest common
+denominator of <code>a</code> and <code>b</code>.</p>
+
+<b><a name="integer::get_data_proxy">get_data_proxy</a></b>
+
+<code><pre>integer_data_proxy <b>integer::get_data_proxy</b>();</pre></code>
+
+<p>The member function returns an object of type
+<a href="#class_integer_data_proxy">integer_data_proxy</a>
+that can be used to examine and modify the internal storage of
+<code>*this</code>. If an object of type <code>integer_data_proxy</code> that refers
+to <code>*this</code> exists at the time of a call to this function, the function
+throws an exception object of type <code>std::runtime_error</code>.</p>
+
+<b><a name="integer::integer">integer</a></b>
+
+<code><pre><b>integer::integer</b>() noexcept;
+
+template &lt;class Ty&gt;
+    <b>integer::integer</b>(Ty rhs) noexcept; // arithmetic types only
+
+<b>integer::integer</b>(std::initializer_list&lt;<i>unspecified</i>&gt; list);
+
+template&lt;class CharT, class Traits, class Alloc&gt;
+    explicit <b>integer::integer</b>(const std::basic_string&lt;CharT, Traits, Alloc&gt;&amp; str);
+
+<b>integer::integer</b>(const bits&amp; rhs);
+<b>integer::integer</b>(bits&amp;&amp; rhs);
+
+<b>integer::integer</b>(const integer&amp; rhs);
+<b>integer::integer</b>(integer&amp;&amp; rhs) noexcept;</pre></code>
+
+<p>The default constructor constructs an object whose value is
+<code>0</code>.</p>
+
+<p>The template constructor with type argument <code>Ty</code> shall not take part
+in overload resolution unless the type <code>Ty</code> is an arithmetic type. For
+integral types the constructor constructs an object whose value is <code>val</code>.
+For floating-point types the constructor constructs an object whose value is the
+value of <code>val</code> with any fractional part discarded.</p>
+
+<p>The constructor that takes a <code>string</code> constructs an object whose
+value is the value represented by the string object. The string object shall
+have the form required for the string argument to the function
+<code>std::strtol</code> with a radix of <code>base</code>, and shall be
+interpreted as if by <code>std::strtol(str.c_str(), 0, base)</code>, except that
+the resulting value can never be outside the range of representable values.</p>
+
+<p>The constructor that takes an <code>initializer_list</code> constructs an object whose
+stored value is equal to the elements of the <code>initializer_list</code> treated as a
+series of unsigned 32-bit digits with the leftmost digit being most significant.
+For example, the initializer list <code>{ 0xFE, 0xF0, 0xAA, 0x31 }</code>
+represents the value <code>0xFE * 32<sup>3</sup> + 0xF0 * 32<sup>2</sup> + 0xAA
+* 32<sup>1</sup> + 0x31 * 32<sup>0</sup></code>.</p>
+
+<p>The constructors that take an argument of type <code>bits</code> each
+construct an object whose stored value is the value in the bit pattern in
+<code>rhs</code> interpreted as a ones-complement representation of an integer value.</p>
+
+<p>The copy and move constructors construct objects with the same value as
+<code>rhs</code>. The move constructor
+leaves <code>rhs</code> in an unspecified valid state.</p>
+
+<b><a name="integer::is_odd">is_odd</a></b>
+
+<code><pre>bool <b>integer::is_odd</b>() const noexcept;</pre></code>
+
+<p>The member function returns <code>true</code> only if the stored value
+represents an odd number.</p>
+
+<b><a name="integer::is_zero">is_zero</a></b>
+
+<code><pre>bool <b>integer::is_zero</b>() const noexcept;</pre></code>
+
+<p>The member function returns <code>true</code> only if the stored value
+is zero.</p>
+
+<b><a name="integer::lcm">lcm</a></b>
+
+<code><pre>integer <b>lcm</b>(const integer&amp; a, const integer&amp; b);</pre></code>
+
+<p>The function returns an object whose value is the least common multiple of
+<code>a</code> and <code>b</code>.</p>
+
+<b><a name="integer::mod">mod</a></b>
+
+<code><pre>integer <b>mod</b>(const integer&amp; lhs, const integer&amp; rhs);
+integer&amp; <b>integer::mod</b>(const integer&amp; rhs);</pre></code>
+
+<p>The non-member function returns an object whose value is <code>lhs mod
+rhs</code>. The member function sets the stored value in <code>*this</code> to
+<code>*this mod rhs</code> and returns <code>*this</code>.</p>
+
+<b><a name="integer::mulmod">mulmod</a></b>
+
+<code><pre>integer <b>mulmod</b>(const integer&amp; lhs, const integer&amp; rhs, const integer&amp; m);
+integer&amp; <b>integer::mulmod</b>(const integer&amp; rhs, const integer&amp; m);</pre></code>
+
+<p>The non-member function returns an object whose value is
+<code>(lhs * rhs) mod m</code>. The member function sets the value of
+<code>*this</code> to <code>(*this * rhs) mod m</code> and returns
+<code>*this</code>.</p>
+
+<b><a name="integer::negate">negate</a></b>
+
+<code><pre>integer&amp; <b>integer::negate</b>() noexcept;</pre></code>
+
+<p>The member function sets the stored value of <code>*this</code> to the
+negation of its previous vaue and returns <code>*this</code>.</p>
+
+<b><a name="integer::operator=">operator=</a></b>
+
+<code><pre>template &lt;class Ty&gt;
+    integer&amp; <a href="#integer::operator=">operator=</a>(Ty rhs);   // arithmetic types only
+
+integer&amp; <b>integer::operator=</b>(const integer&amp; rhs);
+integer&amp; <b>integer::operator=</b>(integer&amp;&amp; rhs);
+
+integer&amp; <b>integer::operator=</b>(const bits&amp; rhs);
+integer&amp; <b>integer::operator=</b>(bits&amp;&amp; rhs);</pre></code>
+
+<p>The template operator shall not take part
+in overload resolution unless the type <code>Ty</code> is an arithmetic type. The
+operator effectively executes <code>*this = integer(rhs)</code>.</p>
+
+<p>The next two operators store the value of <code>rhs</code> into
+<code>*this</code>.</p>
+
+<p>The last two operators store the value of <code>rhs</code>,
+interpreted as a ones-complement representation of an integer value, into
+<code>*this</code>.</p>
+
+<p>The operators all return <code>*this</code>.</p>
+
+<b><a name="integer::operator+">operator+</a></b>
+
+<code><pre>integer <b>operator+</b>(const integer&amp; lhs, const integer&amp; rhs);
+integer <b>integer::operator+</b>() const noexcept;</pre></code>
+
+<p>The first operator returns an object whose value is the sum of the values of
+<code>lhs</code> and <code>rhs</code>. The second operator returns a copy of
+<code>*this</code>.</p>
+
+<b><a name="integer::operator+=">operator+=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator+=</b>(const integer&amp; rhs);</pre></code>
+
+<p>The member operator sets the stored value of <code>*this</code> to the sum of
+the values of <code>*this</code> and <code>rhs</code> and returns a reference
+to <code>*this</code>.</p>
+
+<b><a name="integer::operator++">operator++</a></b>
+
+<code><pre>integer&amp; <b>integer::operator++</b>();
+integer <b>integer::operator++</b>(int);</pre></code>
+
+<p>The member operators set the value stored in <code>*this</code> to
+<code>*this + 1</code>. The first operator returns <code>*this</code>. The
+second operator returns an object whose value is the value stored in
+<code>*this</code> prior to the increment.</p>
+
+<b><a name="integer::operator-">operator-</a></b>
+
+<code><pre>integer <b>operator-</b>(const integer&amp; lhs, const integer&amp; rhs)
+integer <b>integer::operator-</b>() noexcept;</pre></code>
+
+<p>The first operator returns an object whose value is the difference between the
+values of <code>lhs</code> and <code>rhs</code>. The second operator returns
+an object whose value is the negation of the value of <code>*this</code>.</p>
+
+<b><a name="integer::operator-=">operator-=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator-=</b>(const integer&amp;);</pre></code>
+
+<p>The member operator sets the stored value of <code>*this</code> to the
+difference between the values of <code>*this</code> and <code>rhs</code> and
+returns <code>*this</code>.</p>
+
+<b><a name="integer::operator--">operator--</a></b>
+
+<code><pre>integer&amp; <b>integer::operator--</b>();
+integer <b>integer::operator--</b>(int);</pre></code>
+
+<p>The member operators set the value stored in <code>*this</code> to
+<code>*this - 1</code>. The first operator returns <code>*this</code>. The
+second operator returns an object whose value is the value stored in
+<code>*this</code> prior to the decrement.</p>
+
+<b><a name="integer::operator*">operator*</a></b>
+
+<code><pre>integer <b>operator*</b>(const integer&amp; lhs, const integer&amp; rhs);</pre></code>
+
+<p>The operator returns an object whose value is the product of the values of
+<code>lhs</code> and <code>rhs</code>.</p>
+
+<b><a name="integer::operator*=">operator*=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator*=</b>(const integer&amp; rhs);</pre></code>
+
+<p>The member operator sets the stored value of <code>*this</code> to the
+product of the values of <code>*this</code> and <code>rhs</code> and returns a
+reference to <code>*this</code>.</p>
+
+<b><a name="integer::operator/">operator/</a></b>
+
+<code><pre>integer <b>operator/</b>(const integer&amp; lhs, const integer&amp; rhs);</pre></code>
+
+<p>The operator returns an object whose value is the quotient of the value of
+<code>lhs</code> divided by the value of <code>rhs</code>, discarding any
+fractional part.</p>
+
+<b><a name="integer::operator/=">operator/=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator/=</b>(const integer&amp; rhs);</pre></code>
+
+<p>The member operator sets the stored value of <code>*this</code> to the
+quotient of the value of <code>*this</code> divided by the value of
+<code>rhs</code>, discarding any fractional part, and returns
+<code>*this</code>.</p>
+
+<b><a name="integer::operator%">operator%</a></b>
+
+<code><pre>integer <b>operator%</b>(const integer&amp;, const integer&amp;);</pre></code>
+
+<p>The operator returns an object whose value is the remainder of the value of
+<code>lhs</code> divided by the value of <code>rhs</code>. The remainder is
+the value such that <code>(lhs / rhs) * rhs + lhs % rhs</code> is equal
+to <code>lhs</code>.</p>
+
+<b><a name="integer::operator%=">operator%=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator%=</b>(const integer&amp;);</pre></code>
+
+<p>The member operator sets the stored value of <code>*this</code> to the
+remainder of <code>*this</code> divided by the value of <code>rhs</code> and
+returns <code>*this</code>.</p>
+
+<b><a name="integer::operator&gt;&gt;">operator&gt;&gt;</a></b>
+
+<code><pre>integer <b>operator&gt;&gt;</b>(const integer&amp; val, size_t rhs);</pre></code>
+
+<p>The operator returns an object whose value is
+<code>val / 2<sup>rhs</sup></code>.</p>
+
+<b><a name="integer::operator&gt;&gt;=">operator&gt;&gt;=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator&gt;&gt;=(size_t rhs);</b></pre></code>
+
+<p>The operator
+sets the value of <code>*this</code> to <code>*this / 2<sup>rhs</sup></code>.
+The operator returns <code>*this</code>.</p>
+
+<b><a name="integer::stream_operator&gt;&gt;">operator&gt;&gt;</a></b>
+
+<code><pre>template &lt;class Elem, class Traits&gt;
+    std::basic_istream&lt;Elem, Traits&gt;&amp; <b>operator&gt;&gt;</b>(std::basic_istream&lt;Elem, Traits&gt;&amp; is, integer&amp; val);</pre></code>
+
+<p>The operator has the effect of <code>{ std::string temp; is &gt;&gt;
+temp; val = integer(temp); }</code>. It returns <code>is</code>.</p>
+
+<b><a name="integer::operator&lt;&lt;">operator&lt;&lt;</a></b>
+
+<code><pre>integer <b>operator&lt;&lt;</b>(const integer&amp; val, size_t rhs);</pre></code>
+
+<p>The operator returns an
+object whose value is <code>val * 2<sup>rhs</sup></code>.</p>
+
+<b><a name="integer::operator&lt;&lt;=">operator&lt;&lt;=</a></b>
+
+<code><pre>integer&amp; <b>integer::operator&lt;&lt;=</b>(size_t rhs);</pre></code>
+
+<p>The operator sets the value
+of <code>*this</code> to <code>*this * 2<sup>rhs</sup></code>. The operator
+returns <code>*this</code>.</p>
+
+<b><a name="integer::stream_operator&lt;&lt;">operator&lt;&lt;</a></b>
+
+<code><pre>template &lt;class Elem, class Traits&gt;
+    std::basic_ostream&lt;Elem, Traits&gt;&amp; <b>operator&lt;&lt;</b>(std::basic_ostream&lt;Elem, Traits&gt;&amp; os, const integer&amp; val);</pre></code>
+
+<p>The operator has the effect of <code>os &lt;&lt; to_string(val)</code>.
+It returns <code>os</code>.</p>
+
+<b><a name="integer::operator bool">operator bool</a></b>
+
+<code><pre>explicit <b>integer::operator bool</b>() const noexcept;</pre></code>
+
+<p>The operator returns <code>false</code> only if <code>*this</code> is equal to
+<code>0</code>.</p>
+
+<b><a name="integer::operator long double">operator long double</a></b>
+
+<code><pre>explicit <b>integer::operator long double</b>() const noexcept;</pre></code>
+
+<p>The operator returns a value equal to the stored value of
+<code>*this</code>. If the stored value is outside the range that can be
+represented by an object of type <code>long double</code> the returned value
+is positive or negative infinity, as appropriate.</p>
+
+<b><a name="integer::operator long long">operator long long</a></b>
+
+<code><pre>explicit <b>integer::operator long long</b>() const;</pre></code>
+
+<p>The operator returns a value equal to the stored value of
+<code>*this</code>.
+If the stored value cannot be represented as a <code>long long</code>
+it throws an exception of type <code>range_error</code>.</p>
+
+<b><a name="integer::operator unsigned long long">operator unsigned long long</a></b>
+
+<code><pre>explicit <b>integer::operator unsigned long long</b>() const;</pre></code>
+
+<p>The operator returns a value equal to the stored value of
+<code>*this</code>.
+If the stored value cannot be represented as an <code>unsigned long long</code>
+it throws an exception of type <code>range_error</code>.</p>
+
+ It throws an exception of type <code>range_error</code> if the value
+cannot be represented as an <code>unsigned long long</code>.<p></p>
+
+<b><a name="integer::operator==">operator==</a></b>
+
+<code><pre>bool <b>operator==</b>(const integer&amp; lhs, const integer&amp; rhs) noexcept;</pre></code>
+
+<p>The operator returns <code>true</code> only if the value stored
+in <code>lhs</code> is equal to the value stored in <code>rhs</code>.</p>
+
+<b><a name="integer::operator!=">operator!=</a></b>
+
+<code><pre>bool <b>operator!=</b>(const integer&amp; lhs, const integer&amp; rhs) noexcept;</pre></code>
+
+<p>The operator returns <code>!(lhs == rhs)</code>.</p>
+
+<b><a name="integer::operator&gt;">operator&gt;</a></b>
+
+<code><pre>bool <b>operator&gt;</b>(const integer&amp; lhs, const integer&amp; rhs) noexcept;</pre></code>
+
+<p>The operator returns <code>rhs &lt; lhs</code>.</p>
+
+<b><a name="integer::operator&gt;=">operator&gt;=</a></b>
+
+<code><pre>bool <b>operator&gt;=</b>(const integer&amp; lhs, const integer&amp; rhs) noexcept;</pre></code>
+
+<p>The operator returns <code>!(lhs &lt; rhs)</code>.</p>
+
+<b><a name="integer::operator&lt;">operator&lt;</a></b>
+
+<code><pre>bool <b>operator&lt;</b>(const integer&amp; lhs, const integer&amp; rhs) noexcept;</pre></code>
+
+<p>The operator return <code>true</code> only if <code>lhs.compare(rhs)</code> returns -1.</p>
+
+<b><a name="integer::operator&lt;=">operator&lt;=</a></b>
+
+<code><pre>bool <b>operator&lt;=</b>(const integer&amp; lhs, const integer&amp; rhs) noexcept;</pre></code>
+
+<p>The operator returns <code>!(rhs &lt; lhs)</code>.</p>
+
+<b><a name="integer::pow">pow</a></b>
+
+<code><pre>integer <b>pow</b>(const integer&amp; val, const integer&amp; exp);
+integer&amp; <b>integer::pow</b>(const integer&amp; exp);</pre></code>
+
+<p>The non-member function returns an object whose value is
+<code>val<sup>exp</sup></code>. The member function sets the value of
+<code>*this</code> to <code>*this<sup>exp</sup></code> and returns
+<code>*this</code>. <i>Requires</i>: <code>0 &lt;= exp</code>.</p>
+
+<b><a name="integer::powmod">powmod</a></b>
+
+<code><pre>integer <b>powmod</b>(const integer&amp; val, const integer&amp; exp, const integer&amp; m);
+integer&amp; <b>integer::powmod</b>(const integer&amp; exp, const integer&amp; m);</pre></code>
+
+<p>The non-member function returns an object whose value is
+<code>val<sup>exp</sup> mod m</code>. The member function sets the value of
+<code>*this</code> to <code>*this<sup>exp</sup> mod m</code> and returns
+<code>*this</code>. <i>Requires</i>: <code>0 &lt;= exp</code> and <code>m != 0</code>.</p>
+
+<b><a name="integer::reserve">reserve</a></b>
+
+<code><pre>void <b>integer::reserve</b>(size_t digits);</pre></code>
+
+<p>The member function ensures that <code>capacity() &gt;= digits</code>.</p>
+
+<b><a name="integer::shrink_to_fit">shrink_to_fit</a></b>
+
+<code><pre>void <b>integer::shrink_to_fit</b>();</pre></code>
+
+<p>The member function is a non-binding request to reduce <code>capacity()</code>
+to hold the current stored value without wasted space.</p>
+
+<b><a name="integer::size">size</a></b>
+
+<code><pre>size_t <b>integer::size</b>() const noexcept;</pre></code>
+
+<p>The member function returns <code>capacity()</code>.</p>
+
+<b><a name="integer::sqr">sqr</a></b>
+
+<code><pre>integer <b>sqr</b>(const integer&amp; val);
+integer&amp; <b>integer::sqr</b>();</pre></code>
+
+<p>The non-member function returns an object whose value is
+<code>val * val</code>. The member function sets the value
+of <code>*this</code> to <code>*this * *this</code> and returns
+<code>*this</code>.</p>
+
+<b><a name="integer::sqrt">sqrt</a></b>
+
+<code><pre>integer <b>sqrt</b>(const integer&amp; val);
+integer&amp; <b>integer::sqrt</b>();</pre></code>
+
+<p>The non-member function returns an object whose value is the square root of
+the value held by <code>val</code>, discarding any fractional part.
+<i>Requires</i>: <code>0 &lt;= val</code>. The member
+function sets the value of <code>*this</code> to the square root of the value
+held by <code>*this</code>, discarding any fractional part, and returns
+<code>*this</code>. <i>Requires</i>: <code>0 &lt;= *this</code>.</p>
+
+<b><a name="integer::swap">swap</a></b>
+
+<code><pre>void <b>swap</b>(integer&amp; lhs, integer&amp; rhs) noexcept;
+void <b>integer::swap</b>(integer&amp; rhs) noexcept;</pre></code>
+
+<p>The non-member function swaps the stored values of
+<code>lhs</code> and <code>rhs</code>. The member function
+swaps the stored values of <code>*this</code> and <code>rhs</code>.</p>
+
+<b><a name="integer::to_string">to_string</a></b>
+
+<code><pre>std::string <b>to_string</b>(const integer&amp; val, int radix = 10) const;</pre></code>
+
+<p>The function returns a string representation of the value stored in
+<code>val</code>, using <code>radix</code> as the radix.</p>
+
+<h2><a name="class_integer_data_proxy">Class <code>integer_data_proxy</code></a></h2>
+
+<pre><code>class <b>integer_data_proxy</b> {
+
+    // type names
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::data_type">data_type</a>;
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::arithmetic_type">arithmetic_type</a>;
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::uarithmetic_type">uarithmetic_type</a>;
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::iterator">iterator</a>;
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::const_iterator">const_iterator</a>;
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::reverse_iterator">reverse_iterator</a>;
+    typedef <i>unspecified</i> <a href="#integer_data_proxy::const_reverse_iterator">const_reverse_iterator</a>;
+
+    // constructors
+    <a href="#integer_data_proxy::integer_data_proxy">integer_data_proxy</a>(const integer_data_proxy&amp; rhs) = delete;
+    <a href="#integer_data_proxy::integer_data_proxy">integer_data_proxy</a>(integer_data_proxy&amp;&amp; rhs);
+
+    // assign
+    integer_data_proxy&amp; <a href="#integer_data_proxy::operator=">operator=</a>(const integer_data_proxy&amp; rhs) = delete;
+    integer_data_proxy&amp; <a href="#integer_data_proxy::operator=">operator=</a>(integer_data_proxy&amp;&amp; rhs) = delete;
+
+    // iterators
+    iterator <a href="#integer_data_proxy::begin">begin</a>() noexcept;
+    iterator <a href="#integer_data_proxy::end">end</a>() noexcept;
+    reverse_iterator <a href="#integer_data_proxy::rbegin">rbegin</a>() noexcept;
+    reverse_iterator <a href="#integer_data_proxy::rend">rend</a>() noexcept;
+    const_iterator <a href="#integer_data_proxy::cbegin">cbegin</a>() const noexcept;
+    const_iterator <a href="#integer_data_proxy::cend">cend</a>() const noexcept;
+    const_reverse_iterator <a href="#integer_data_proxy::crbegin">crbegin</a>() const noexcept;
+    const_reverse_iterator <a href="#integer_data_proxy::crend">crend</a>() const noexcept;
+
+    // element access
+    data_type <a href="#integer_data_proxy::operator[]">operator[]</a>(size_t pos) const;
+    data_type&amp; <a href="#integer_data_proxy::operator[]">operator[]</a>(size_t pos);
+
+    // capacity
+    size_t <a href="#integer_data_proxy::size">size</a>() const noexcept;
+    size_t <a href="#integer_data_proxy::capacity">capacity</a>() const noexcept;
+    void <a href="#integer_data_proxy::reserve">reserve</a>(size_t digits);
+    void <a href="#integer_data_proxy::shrink_to_fit">shrink_to_fit</a>();
+};
+</code></pre>
+
+<p>The class describes an object that can be used to examine and
+modify the internal representation of an object of type
+<code>integer</code>. This allows advanced users to portably implement
+algorithms that are not provided natively.</p>
+
+<p>There can be only one <code>integer_data_proxy</code> object
+associated with a particular <code>integer</code> object at any given
+time; that object is obtained by calling the <code>get_data_proxy</code> member
+function on the <code>integer</code> object. The resulting object can
+be moved but not copied.</p>
+
+<b><a name="integer_data_proxy::arithmetic_type">arithmetic_type</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data_proxy::arithmetic_type</b>;</pre></code>
+
+<p>The typedef defines a synonym for a signed arithmetic type that is large enough to
+hold the product of the largest values that the implementation will store in an object
+of type <a href="#integer_data_proxy::data_type">data_type</a>.</p>
+
+<b><a name="integer_data_proxy::begin">begin</a></b>
+
+<code><pre>iterator <b>integer_data_proxy::begin</b>();</pre></code>
+
+<p>The member function returns an iterator object such that the iterators <code>[begin(), end())</code>
+point to the internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::capacity">capacity</a></b>
+
+<code><pre>size_t <b>integer_data_proxy::capacity</b>() const noexcept;</pre></code>
+
+<p>The member function returns the number of decimal digits that the <code>integer</code> object can represent without
+reallocating its internal storage.</p>
+
+
+<b><a name="integer_data_proxy::cbegin">cbegin</a></b>
+
+<code><pre>const_iterator <b>integer_data_proxy::cbegin</b>() const;</pre></code>
+
+<p>The member function returns an iterator object such that the iterator range <code>[cbegin(), cend())</code>
+points to the internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::cend">cend</a></b>
+
+<code><pre>const_iterator <b>integer_data_proxy::cend</b>() const;</pre></code>
+
+<p>The member function returns an iterator object such that the iterator range <code>[cbegin(), cend())</code>
+points to the internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::const_iterator">const_iterator</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data_proxy::const_iterator</b>;</pre></code>
+
+<p>The typedef defines a synonym for an iterator that can be used to access but not
+modify internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::const_reverse_iterator">const_reverse_iterator</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data_proxy::const_reverse_iterator</b>;</pre></code>
+
+<p>The typedef defines a synonym for a reverse iterator that can be used to access but not
+modify internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::crbegin">crbegin</a></b>
+
+<code><pre>const_reverse_iterator <b>integer_data_proxy::crbegin</b>() const;</pre></code>
+
+<p>The member function returns a reverse iterator object such that the iterator range <code>[crbegin(), crend())</code>
+points to the internal data elements of the <code>integer</code> object in reverse order.</p>
+
+<b><a name="integer_data_proxy::crend">crend</a></b>
+
+<code><pre>const_reverse_iterator <b>integer_data_proxy::crend</b>() const;</pre></code>
+
+<p>The member function returns a reverse iterator object such that the iterator range <code>[crbegin(), crend())</code>
+points to the internal data elements of the <code>integer</code> object in reverse order.</p>
+
+<b><a name="integer_data_proxy::data_type">data_type</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data_proxy::data_type</b>;</pre></code>
+
+<p>The typedef defines a synonym for the type of the <code>integer</code> object's internal data elements.</p>
+
+<b><a name="integer_data_proxy::end">end</a></b>
+
+<code><pre>iterator <b>integer_data_proxy::end</b>();</pre></code>
+
+<p>The member function returns an iterator object such that the iterator range <code>[begin(), end())</code>
+points to the internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::integer_data_proxy">integer_data_proxy</a></b>
+
+<code><pre><b>integer_data_proxy::integer_data_proxy</b>(const integer_data_proxy&amp;) = delete;
+<b>integer_data_proxy::integer_data_proxy</b>(integer_data_proxy&amp;&amp; rhs);</pre></code>
+
+<p>The copy constructor is deleted. The move constructor copies the contents of <code>rhs</code> and
+leaves <code>rhs</code> in an unspecified valid state.</p>
+
+<b><a name="integer_data_proxy::iterator">iterator</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data_proxy::iterator</b>;</pre></code>
+
+<p>The typedef defines a synonym for an iterator that can be used to access
+internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::operator=">operator=</a></b>
+
+<code><pre>integer&amp; <b>integer_data_proxy::operator=</b>(const integer_data_proxy&amp;) = delete;
+integer&amp; <b>integer_data_proxy::operator=</b>(integer_data_proxy&amp;&amp;) = delete;</pre></code>
+
+<p>The copy assignment and move assignment operators are deleted.</p>
+
+<b><a name="integer_data_proxy::operator[]">operator[]</a></b>
+
+<code><pre>data_type <b>integer_data_proxy::operator[]</b>(size_t pos) const;
+data_type&amp; <b>integer_data_proxy::operator[]</b>(size_t pos);</pre></code>
+
+<p>The first member function returns the value of the internal data element at
+index <code>pos</code>. The second member function returns a reference to
+the internal data element at index <code>pos</code>.</p>
+
+<b><a name="integer_data_proxy::rbegin">rbegin</a></b>
+
+<code><pre>reverse_iterator <b>integer_data_proxy::rbegin</b>();</pre></code>
+
+<p>The member function returns a reverse iterator object such that the iterator range <code>[crbegin(), crend())</code>
+points to the internal data elements of the <code>integer</code> object in reverse order.</p>
+
+<b><a name="integer_data_proxy::rend">rend</a></b>
+
+<code><pre>reverse_iterator <b>integer_data_proxy::rend</b>();</pre></code>
+
+<p>The member function returns a reverse iterator object such that the iterator range <code>[crbegin(), crend())</code>
+points to the internal data elements of the <code>integer</code> object in reverse order.</p>
+
+<b><a name="integer_data_proxy::reserve">reserve</a></b>
+
+<code><pre>void <b>integer_data_proxy::reserve</b>(size_t digits);</pre></code>
+
+<p>The member function ensures that <code>capacity() &gt;= digits</code>.</p>
+
+<b><a name="integer_data_proxy::reverse_iterator">reverse_iterator</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data_proxy::reverse_iterator</b>;</pre></code>
+
+<p>The typedef defines a synonym for a reverse iterator that can be used to access
+internal data elements of the <code>integer</code> object.</p>
+
+<b><a name="integer_data_proxy::shrink_to_fit">shrink_to_fit</a></b>
+
+<code><pre>void <b>integer_data_proxy::shrink_to_fit</b>();</pre></code>
+
+<p>The member function is a non-binding request to reduce <code>capacity()</code>
+to hold the <code>integer</code> object's current stored value without wasted space.</p>
+
+<b><a name="integer_data_proxy::size">size</a></b>
+
+<code><pre>size_t <b>integer_data_proxy::size</b>() const;</pre></code>
+
+<p>The member function returns <code>capacity()</code>.</p>
+
+<b><a name="integer_data_proxy::uarithmetic_type">uarithmetic_type</a></b>
+
+<code><pre>typedef <i>unspecified</i> <b>integer_data:proxy::uarithmetic_type</b>;</pre></code>
+
+<p>The typedef defines a synonym for an unsigned arithmetic type that is large enough to
+hold the product of the largest values that the implementation will store in an object
+of type <a href="#integer_data_proxy::data_type">data_type</a>.</p>
+
+<h2><a name="class_bits">Class <code>bits</code></a></h2>
+
+<pre><code>class <b><a name="#bits">bits</a></b> {
+public:
+
+    class <a href="#class_bits_reference">reference</a>;
+
+    // constructors
+    <a href="#bits::bits">bits</a>() noexcept;
+
+    template &lt;class Ty&gt;
+        <a href="#bits::bits">bits</a>(Ty rhs) noexcept;    // integral types only
+
+    <a href="#bits::bits">bits</a>(std::initializer_list&lt;uint_least32_t&gt; list);
+
+    template &lt;class CharT, class Traits, class Alloc&gt;
+    explicit <a href="#bits::bits">bits</a>(const basic_string&lt;CharT, Traits, Alloc&gt;&amp; str,
+        typename basic_string&lt;CharT, Traits, Alloc&gt;::size_t pos = 0,
+        typename basic_string&lt;CharT, Traits, Alloc&gt;::size_t count = std::basic_string&lt;CharT&gt;::npos,
+        CharT zero = CharT('0'),
+        CharT one = CharT('1'));
+    template &lt;class CharT&gt;
+    explicit <a href="#bits::bits">bits</a>(const CharT *ptr,
+        typename basic_string&lt;CharT&gt;::size_t count = std::basic_string&lt;CharT&gt;::npos,
+        CharT zero = CharT('0'),
+        CharT one = CharT('1'));
+
+    explicit <a href="#bits::bits">bits</a>(const integer&amp; val);
+    explicit <a href="#bits::bits">bits</a>(integer&amp;&amp; val);
+
+    <a href="#bits::bits">bits</a>(const bits&amp; rhs);
+    <a href="#bits::bits">bits</a>(bits&amp;&amp; rhs) noexcept;
+
+    // assign and swap
+    template &lt;class Ty&gt;
+        bits&amp; <a href="#bits::operator=">operator=</a>(Ty rhs); // integral types only
+    bits&amp; <a href="#bits::operator=">operator=</a>(const integer&amp; rhs);
+    bits&amp; <a href="#bits::operator=">operator=</a>(integer&amp;&amp; rhs);
+    bits&amp; <a href="#bits::operator=">operator=</a>(const bits&amp; rhs);
+    bits&amp; <a href="#bits::operator=">operator=</a>(bits&amp;&amp; rhs);
+    void <a href="#bits::swap">swap</a>(bits&amp; rhs) noexcept;
+
+    // conversions
+    unsigned long <a href="#bits::to_ulong">to_ulong</a>() const;
+    unsigned long long <a href="#bits::to_ullong">to_ullong</a>() const;
+    template &lt;class CharT = char, class Traits = std::char_traits&lt;CharT&gt;, class Alloc = std::allocator&lt;CharT&gt; &gt;
+        std::basic_string&lt;CharT, Traits, Alloc&gt; <a href="#bits::to_string">to_string</a>(CharT zero = CharT('0'), CharT one = CharT('1')) const;
+
+    // logical operations
+    bits&amp; <a href="#bits::operator&amp;=">operator&amp;=</a>(const bits&amp; rhs);
+    bits&amp; <a href="#bits::operator|=">operator|=</a>(const bits&amp; rhs);
+    bits&amp; <a href="#bits::operator^=">operator^=</a>(const bits&amp; rhs);
+    bits <a href="#bits::operator~">operator~</a>() const;
+
+    bits&amp; <a href="#bits::operator&lt;&lt;=">operator&lt;&lt;=</a>(size_t rhs);
+    bits&amp; <a href="#bits::operator&gt;&gt;=">operator&gt;&gt;=</a>(size_t rhs);
+    bits&amp; <a href="#bits::operator&lt;&lt;">operator&lt;&lt;</a>(size_t rhs) const;
+    bits&amp; <a href="#bits::operator&gt;&gt;">operator&gt;&gt;</a>(size_t rhs) const;
+
+    // element access and modification
+    bits&amp; <a href="#bits::set">set</a>() noexcept;
+    bits&amp; <a href="#bits::set">set</a>(size_t pos, bool val = true);
+    bits&amp; <a href="#bits::reset">reset</a>() noexcept;
+    bits&amp; <a href="#bits::reset">reset</a>(size_t pos);
+    bits&amp; <a href="#bits::flip">flip</a>() noexcept;
+    bits&amp; <a href="#bits::flip">flip</a>(size_t pos);
+    bool <a href="#bits::operator[]">operator[]</a>(size_t pos) const;
+    reference <a href="#bits::operator[]">operator[]</a>(size_t pos);
+    bool <a href="#bits::test">test</a>(size_t pos) const noexcept;
+    bool <a href="#bits::all">all</a>() const noexcept;
+    bool <a href="#bits::any">any</a>() const noexcept;
+    bool <a href="#bits::none">none</a>() const noexcept;
+    size_t <a href="#bits::count">count</a>() const noexcept;
+    size_t <a href="#bits::count_not_set">count_not_set</a>() const noexcept;
+
+    // comparison
+    bool <a href="#bits::operator==">operator==</a>(const bits&amp; rhs) const noexcept;
+    bool <a href="#bits::operator!=">operator!=</a>(const bits&amp; rhs) const noexcept;
+
+    // capacity
+    size_t <a href="#bits::size">size</a>() const noexcept;
+    size_t <a href="#bits::capacity">capacity</a>() const noexcept;
+    void <a href="#bits::reserve">reserve</a>(size_t bit_count);
+    void <a href="#bits::shrink_to_fit">shrink_to_fit</a>();
+
+};
+</code></pre>
+
+<p>The class describes an object that represents an unbounded set of bits.</p>
+
+<b><a name="bits::all">all</a></b>
+
+<code><pre>bool <b>bits::all</b>() const noexcept</pre></code>
+
+<p>The member function returns true only if all the bits in
+<code>*this</code> are set.</p>
+
+<b><a name="bits::any">any</a></b>
+
+<code><pre>bool <b>bits::any</b>() const noexcept</pre></code>
+
+<p>The member function returns true if at least one of the
+bits in <code>*this</code> is set.</p>
+
+<b><a name="bits::bits">bits</a></b>
+
+<code><pre><b>bits::bits</b>() noexcept;
+
+template &lt;class Ty&gt;
+    <b>bits::bits</b>(Ty rhs) noexcept;    // integral types only
+
+<b>bits::bits</b>(std::initializer_list&lt;uint_least32_t&gt; list);
+
+template &lt;class CharT, class Traits, class Alloc&gt;
+explicit <b>bits::bits</b>(const basic_string&lt;CharT, Traits, Alloc&gt;&amp; str,
+    typename basic_string&lt;CharT, Traits, Alloc&gt;::size_t pos = 0,
+    typename basic_string&lt;CharT, Traits, Alloc&gt;::size_t count = std::basic_string&lt;CharT&gt;::npos,
+    CharT zero = CharT('0'),
+    CharT one = CharT('1'));
+template &lt;class CharT&gt;
+explicit <b>bits::bits</b>(const CharT *ptr,
+    typename basic_string&lt;CharT&gt;::size_t count = std::basic_string&lt;CharT&gt;::npos,
+    CharT zero = CharT('0'),
+    CharT one = CharT('1'));
+
+explicit <b>bits::bits</b>(const integer&amp; rhs);
+explicit <b>bits::bits</b>(integer&amp;&amp; rhs);
+
+<b>bits::bits</b>(const bits&amp; rhs);
+<b>bits::bits</b>(bits&amp;&amp; rhs) noexcept;</pre></code>
+
+<p>The default constructor constructs an object whose value is
+<code>0</code>.</p>
+
+<p>The template constructor with type argument <code>Ty</code> shall not take part
+in overload resolution unless the type <code>Ty</code> is an integral type. It
+constructs an object whose value is the ones-complement representation of <code>rhs</code>.</p>
+
+<p>The constructor that takes an initializer_list constructs an object whose
+stored value is equal to the elements of the initializer_list treated as a
+series of unsigned 32-bit digits with the leftmost digit being most significant.
+For example, the initializer list <code>{ 0xFE, 0xF0, 0xAA, 0x31 }</code>
+represents the value <code>0xFE * 32<sup>3</sup> + 0xF0 * 32<sup>2</sup> + 0xAA
+* 32<sup>1</sup> + 0x31 * 32<sup>0</sup></code>.</p>
+
+<p>The constructors that take <code>string</code> and <code>const char*</code>
+objects construct an object whose value is the value represented by their argument,
+treating <code>zero</code> as 0 and <code>one</code> as 1.</p>
+
+<p>The constructors that take an argument of type <code>integer</code>
+construct objects whose value is the ones-complement representation of <code>rhs</code>.</p>
+
+<p>The copy and move constructors construct objects with the same value as
+<code>rhs</code>. The move constructor leaves <code>rhs</code> in an unspecified
+valid state.</p>
+
+<b><a name="bits::capacity">capacity</a></b>
+
+<code><pre>size_t <b>bits::capacity</b>() const noexcept;</pre></code>
+
+<p>The member function returns the number of bits that the object can represent without
+reallocating its internal storage.</p>
+
+<b><a name="bits::count">count</a></b>
+
+<code><pre>size_t <b>bits::count</b>() const noexcept;</pre></code>
+
+<p>The member function returns the number of bits in <code>*this</code>
+that are set, or <code>static_cast&lt;size_t&gt;(-1)</code> if the number of
+bits that are set is too large to fit in an object of type <code>size_t</code>.</p>
+
+<b><a name="bits::count_not_set">count_not_set</a></b>
+
+<code><pre>size_t <b>bits::count_not_set</b>() const noexcept;</pre></code>
+
+<p>The member function returns the number of bits in <code>*this</code>
+that are not set, or <code>static_cast&lt;size_t&gt;(-1)</code> if the number of
+bits that are not set is too large to fit in an object of type <code>size_t</code>.</p>
+
+<b><a name="bits::flip">flip</a></b>
+
+<code><pre>void <b>bits::flip</b>() const noexcept;
+void <b>bits::flip</b>(size_t pos);</pre></code>
+
+<p>The first member function toggles all the bits in the stored value.
+The second member function toggles the bit at position <code>pos</code> in the
+stored value.</p>
+
+<b><a name="bits::none">none</a></b>
+
+<code><pre>bool <b>bits::none</b>() const noexcept;</pre></code>
+
+<p>The member function returns true only if none of the bits in <code>*this</code>
+is set.</p>
+
+<b><a name="bits::operator=">operator=</a></b>
+
+<code><pre>template &lt;class Ty&gt;
+    bits&amp; <b>bits::operator=</b>(Ty rhs);   // integral types only
+bits&amp; <b>bits::operator=</b>(const bits&amp; rhs);
+bits&amp; <b>bits::operator=</b>(bits&amp;&amp; rhs);
+
+bits&amp; <b>bits::operator=</b>(const integer&amp; rhs);
+bits&amp; <b>bits::operator=</b>(integer&amp;&amp; rhs);</pre></code>
+
+<p>The template operator shall not take part
+in overload resolution unless the type <code>Ty</code> is an arithmetic type. The
+operator effectively executes <code>*this = integer(rhs)</code>.</p>
+
+<p>The next two operators store the value of <code>rhs</code> into
+<code>*this</code>.</p>
+
+<p>The last two operators store the ones-complement
+representation of <code>rhs</code> into <code>*this</code>.</p>
+
+<p>All of the
+operators return <code>*this</code>.</p>
+
+<b><a name="bits::operator==">operator==</a></b>
+
+<code><pre>bool <b>bits::operator==</b>(const bits&amp; rhs) const noexcept;</pre></code>
+
+<p>The member operator returns <code>true</code> only if the stored value in <code>*this</code>
+is the same as the stored value in <code>rhs</code>.</p>
+
+<b><a name="bits::operator!=">operator!=</a></b>
+
+<code><pre>bool <b>bits::operator!=</b>(const bits&amp; rhs) const noexcept;</pre></code>
+
+<p>The member operator returns <code>!(*this == rhs)</code>.</p>
+
+<b><a name="bits::operator&amp;">operator&amp;</a></b>
+
+<code><pre>bits <b>operator&amp;</b>(const bits&amp; lhs, const bits&amp; rhs);</pre></code>
+
+<p>The operator returns an object whose value is the bitwise AND of the values
+of <code>lhs</code> and <code>rhs</code>.</p>
+
+<b><a name="bits::operator&amp;=">operator&amp;=</a></b>
+
+<code><pre>bits&amp; <b>bits::operator&amp;=</b>(const bits&amp; rhs);</pre></code>
+
+<p>The member operator sets the value of <code>*this</code> to the bitwise AND
+of the values of <code>*this</code> and <code>rhs</code> and returns a
+reference to <code>*this</code>.</p>
+
+<b><a name="bits::operator|">operator|</a></b>
+
+<code><pre>bits <b>operator|</b>(const bits&amp; lhs, const bits&amp; rhs);</pre></code>
+
+<p>The operator returns an object whose value is the bitwise inclusive OR of the
+values of <code>lhs</code> and <code>rhs</code>.</p>
+
+<b><a name="bits::operator|=">operator|=</a></b>
+
+<code><pre>bits&amp; <b>bits::operator|=</b>(const bits&amp; rhs);</pre></code>
+
+<p>The member operator sets the value of <code>*this</code> to the bitwise
+inclusive OR of the values of <code>*this</code> and <code>rhs</code> and
+returns <code>*this</code>.</p>
+
+<b><a name="bits::operator^">operator^</a></b>
+
+<code><pre>bits <b>operator^</b>(const bits&amp; lhs, const bits&amp; rhs);</pre></code>
+
+<p>The operator returns an object whose value is the bitwise exclusive OR of
+the values of <code>lhs</code> and <code>rhs</code>.</p>
+
+<b><a name="bits::operator^=">operator^=</a></b>
+
+<code><pre>bits&amp; <b>bits::operator^=</b>(const bits&amp; rhs);</pre></code>
+
+<p>The member operator sets the value of <code>*this</code> to the bitwise
+exclusive OR of the values of <code>*this</code> and <code>rhs</code> and
+returns <code>*this</code>.</p>
+
+<b><a name="bits::operator~">operator~</a></b>
+
+<code><pre>bits <b>bits::operator~</b>() const;</pre></code>
+
+<p>The member function returns an object that holds the complement
+of the set of bits held by <code>*this</code>.</p>
+
+<b><a name="bits::operator&gt;&gt;">operator&gt;&gt;</a></b>
+
+<code><pre>bits <b>operator&gt;&gt;</b>(const bits&amp; lhs, size_t rhs);</pre></code>
+
+<p>The operator returns an object whose stored value is the value of
+the bits in <code>lhs</code> shifted right <code>rhs</code> positions.</p>
+
+<b><a name="bits::operator&gt;&gt;=">operator&gt;&gt;=</a></b>
+
+<code><pre>bits&amp; <b>bits::operator&gt;&gt;=</b>(size_t rhs);</pre></code>
+
+<p>The operator sets the stored value in <code>*this</code> to the value of
+the bits in <code>*this</code> shifted right <code>rhs</code> positions. It
+returns <code>*this</code>.</p>
+
+<b><a name="bits::stream_operator&gt;&gt;">operator&gt;&gt;</a></b>
+
+<code><pre>template &lt;class CharT, class Traits&gt;
+    std::basic_istream&lt;CharT, Traits&gt;&amp; <b>operator&gt;&gt;</b>(
+        std::basic_istream&lt;CharT, Traits&gt;&amp; is, bits&amp; val);</pre></code>
+
+<p>The operator has the effect of <code>{ std::string temp; is &gt;&gt;
+temp; val = temp; }</code>. It returns <code>is</code>.</p>
+
+<b><a name="bits::operator&lt;&lt;">operator&lt;&lt;</a></b>
+
+<code><pre>bits <b>operator&lt;&lt;</b>(const bits&amp; lhs, size_t rhs);</pre></code>
+
+<p>The operator returns an object whose stored value is the value of
+the bits in <code>lhs</code> shifted left <code>rhs</code> positions.</p>
+
+<b><a name="bits::operator&lt;&lt;=">operator&lt;&lt;=</a></b>
+
+<code><pre>bits&amp; <b>bits::operator&lt;&lt;=</b>(size_t rhs);</pre></code>
+
+<p>The operator sets the stored value in <code>*this</code> to the value of
+the bits in <code>*this</code> shifted left <code>rhs</code> positions. It
+returns <code>*this</code>.</p>
+
+<b><a name="bits::stream_operator&lt;&lt;">operator&lt;&lt;</a></b>
+
+<pre><code>template &lt;class CharT, class Traits&gt;
+    std::basic_ostream&lt;CharT, Traits&gt;&amp; <b>operator&lt;&lt;</b>(
+        std::basic_ostream&lt;CharT, Traits&gt;&amp; os, const bits&amp; val);</code></pre>
+
+<p>The operator has the effect of <code>os &lt;&lt; val.to_string()</code>
+and returns <code>os</code>.</p>
+
+<b><a name="bits::operator[]">operator[]</a></b>
+
+<code><pre>bool <b>bits::operator[]</b>(size_t pos) const;
+reference <b>bits::operator[]</b>(size_t pos);</pre></code>
+
+<p>The first member function returns the value of the bit at position <code>pos</code>.
+The second member function returns an object of type <code>bits::reference</code>
+that refers to the bit at position <code>pos</code>.</p>
+
+<b><a name="bits::reserve">reserve</a></b>
+
+<code><pre>void <b>bits::reserve</b>(size_t bit_count);</pre></code>
+
+<p>The member function ensures that <code>capacity() &gt;= bit_count</code>.</p>
+
+<b><a name="bits::reset">reset</a></b>
+
+<code><pre>bits&amp; <b>bits::reset</b>() noexcept;
+bits&amp; <b>bits::reset</b>(size_t pos);</pre></code>
+
+<p>The first member function clears all the bits of <code>*this</code>.
+The second member function clears the bit as position <code>pos</code>.
+Both member functions return <code>*this</code>.</p>
+
+<b><a name="bits::set">set</a></b>
+
+<code><pre>void <b>bits::set</b>() noexcept;
+void <b>bits::set</b>(size_t pos, bool val = true);</pre></code>
+
+<p>The first member function sets all the bits of <code>*this</code>.
+The second member function sets the bit at position <code>pos</code> in the stored
+value to <code>val</code>.
+Both member functions return <code>*this</code>.</p>
+
+<b><a name="bits::shrink_to_fit">shrink_to_fit</a></b>
+
+<code><pre>void <b>bits::shrink_to_fit</b>();</pre></code>
+
+<p>The member function is a non-binding request to reduce <code>capacity()</code>
+to hold the current stored value without wasted space.</p>
+
+<b><a name="bits::size">size</a></b>
+
+<code><pre>size_t <b>bits::size</b>() const noexcept;</pre></code>
+
+<p>The member function returns <code>capacity()</code>.</p>
+
+<b><a name="bits::swap">swap</a></b>
+
+<code><pre>void <b>swap</b>(bits&amp; lhs, bits&amp; rhs) noexcept;
+void <b>bits::swap</b>(bits&amp; rhs) noexcept;</pre></code>
+
+<p>The non-member function swaps the stored values of
+<code>lhs</code> and <code>rhs</code>. The member function
+swaps the stored values of <code>*this</code> and <code>rhs</code>.</p>
+
+<b><a name="bits::test">test</a></b>
+
+<code><pre>bool <b>bits::test</b>(size_t pos) const noexcept;</pre></code>
+
+<p>The member function returns <code>true</code> only if the bit
+at position <code>pos</code> in the stored value is non-zero.</p>
+
+<b><a name="bits::to_string">to_string</a></b>
+
+<code></code><pre><code>template &lt;class CharT = char, class Traits = std::char_traits&lt;CharT&gt;, class Alloc = std::allocator&lt;CharT&gt; &gt;
+    std::basic_string&lt;CharT, Traits, Alloc&gt; <b>bits::to_string</b>(
+        CharT zero = CharT('0'), CharT one = CharT('1'));</code></pre>
+
+<p>The member function returns a string representation of the bits in the value stored in
+<code>*this</code>, using <code>zero</code> to represent 0 and <code>one</code> to represent 1.</p>
+
+<b><a name="bits::to_ullong">to_ullong</a></b>
+
+<code><pre>unsigned long long <b>bits::to_ullong</b>() const;</pre></code>
+
+<p>The member function returns a value equal to the stored value of
+<code>*this</code>. It throws an exception of type <code>range_error</code> if the value
+cannot be represented as an <code>unsigned long long</code>.</p>
+
+<b><a name="bits::to_ulong">to_ulong</a></b>
+
+<code><pre>unsigned long <b>bits::to_ulong</b>() const;</pre></code>
+
+<p>The member function returns a value equal to the stored value of
+<code>*this</code>. It throws an exception of type <code>range_error</code> if the value
+cannot be represented as a <code>long long</code>.</p>
+
+<h2><a name="class_bits_reference">Class <code>bits::reference</code></a></h2>
+
+<code><pre>class <b>bits</b> {
+    class <a href="#bits::reference">reference</a> {
+    public:
+        reference&amp; <a href="#bits::reference::operator=">operator=</a>(bool val) noexcept;
+        reference&amp; <a href="#bits::reference::operator=">operator=</a>(const reference&amp; rhs) noexcept;
+        bool <a href="#bits::reference::operator~">operator~</a>() const noexcept;
+        <a href="#bits::reference::operator bool">operator bool</a>() const noexcept;
+        reference&amp; <a href="#bits::reference::flip">flip</a>() noexcept;
+    };
+};</pre></code>
+
+<p>The nested class <code>bits::reference</code> describes an object that
+can be used to manage a particular bit in an object of type <code>bits</code>.</p>
+
+<b><a name="bits::reference::flip">flip</a></b>
+
+<code><pre>reference&amp; <b>bits::reference::flip</b>() noexcept;</pre></code>
+
+<p>The member function toggles the bit that the object manages.</p>
+
+<b><a name="bits::reference::operator=">operator=</a></b>
+
+<code><pre>reference&amp; <b>bits::reference::operator=</b>(bool rhs) noexcept;
+reference&amp; <b>bits::reference::operator=</b>(const reference&amp; rhs) noexcept;</pre></code>
+
+<p>The first member operator sets the bit that the object manages to the
+value of <code>rhs</code>. The second member operator sets the bit that
+the object manages to the value managed by <code>rhs</code>.</p>
+
+<b><a name="bits::reference::operator~">operator~</a></b>
+
+<code><pre>bool <b>bits::reference::operator~</b>() const noexcept;</pre></code>
+
+<p>The member operator returns <code>true</code> if the bit managed by the
+object is set, otherwise <code>false</code>.</p>
+
+<b><a name="bits::reference::operator bool">operator bool</a></b>
+
+<code><pre><b>bits::reference::operator bool</b>() const noexcept;</pre></code>
+
+<p>The member operator returns true if the bit that the object manages is set.</p>
+
+
+</body></html>

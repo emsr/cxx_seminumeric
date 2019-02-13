@@ -1,0 +1,1058 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+
+<style type="text/css">
+
+body {
+  color: #000000;
+  background-color: #FFFFFF;
+}
+
+del {
+  text-decoration: line-through;
+  color: #8B0040;
+}
+ins {
+  text-decoration: underline;
+  color: #005100;
+}
+
+p.example {
+  margin: 2em;
+}
+pre.example {
+  margin: 2em;
+}
+div.example {
+  margin: 2em;
+}
+
+code.extract {
+  background-color: #F5F6A2;
+}
+pre.extract {
+  margin: 2em;
+  background-color: #F5F6A2;
+  border: 1px solid #E1E28E;
+}
+
+p.function {
+}
+
+p.attribute {
+  text-indent: 3em;
+}
+
+blockquote.std {
+  color: #000000;
+  background-color: #F1F1F1;
+  border: 1px solid #D1D1D1;
+  padding: 0.5em;
+}
+
+blockquote.stddel {
+  text-decoration: line-through;
+  color: #000000;
+  background-color: #FFEBFF;
+  border: 1px solid #ECD7EC;
+  padding: 0.5em;
+}
+
+blockquote.stdins {
+  text-decoration: underline;
+  color: #000000;
+  background-color: #C8FFC8;
+  border: 1px solid #B3EBB3;
+  padding: 0.5em;
+}
+
+table {
+  border: 1px solid black;
+  border-spacing: 0px;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+}
+th {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.2em;
+  border: 1px solid black;
+}
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.2em;
+  border: 1px solid black;
+}
+
+</style>
+
+
+<title>Multi-Word Integer Operations and Types</title>
+</head>
+<body>
+<h1>Multi-Word Integer Operations and Types</h1>
+
+<p>
+Committee: ISO/IEC JTC1 SC22 WG21 SG6 Numerics<br>
+Document Number: P0104r1<br>
+Date: 2017-02-05<br>
+Authors: Lawrence Crowl<br>
+Reply To: Lawrence Crowl, Lawrence@Crowl.org
+</p>
+
+<h2>Abstract</h2>
+
+<p>
+We propose a set of operations and types for multi-word integer arithmetic.
+</p>
+
+<h2>Contents</h2>
+
+<p>
+<a href="#Introduction">Introduction</a><br>
+<a href="#Problem">Problem</a><br>
+<a href="#Solution">Solution</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#DefinitionWord">Definition of Word</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#MultiIntTypes">Multi-Int Types</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#WordArray">Word Array Functions</a><br>
+<a href="#Wording">Wording</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.multiint">?.?.1 Multi-int arithmetic [numbers.multiint]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.multiint.types">?.?.1.1 Multi-int types [numbers.multiint.types]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.multiint.member">?.?.1.2 Multi-int member functions [numbers.multiint.member]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.multiint.free">?.?.1.3 Multi-int free functions [numbers.multiint.free]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.wordarray">?.?.2 Word array arithmetic [numbers.wordarray]</a><br>
+<a href="#Revisions">Revisions</a><br>
+</p>
+
+
+<h2><a name="Introduction">Introduction</a></h2>
+
+<p>
+When the largest built-in integer type is too small for an application domain,
+one may want a larger type that behaves as though it were a built-in type.
+</p>
+
+<p>
+Multi-word integer operations
+are a necessary component of many higher-level types,
+such as those that appear in other proposals.
+</p>
+
+
+<h2><a name="Problem">Problem</a></h2>
+
+<p>
+There is no standard for such types.
+Libraries for multi-word and unbounded integers exist,
+but these were often designed to work in C
+and generally do not take full advantage of C++.
+More importantly, because they are not standard,
+it is hard to use them in code that interacts with foreign code.
+</p>
+
+<p>
+The work for multi-word integer operations is tedious.
+For division it is also complicated.
+Furthermore, details and performance may vary between architectures.
+It is better to do that work once for each platform.
+</p>
+
+
+<h2><a name="Solution">Solution</a></h2>
+
+<p>
+We propose a template for multi-word integer types
+that behave like built-in types.
+While built-in types often have insecure semantics,
+they are also efficient and well understood.
+Some programmers will prefer to use these types directly,
+but we also expect these types to be used as implementation tools
+for higher-level types.
+</p>
+
+<p>
+We also propose a set of operations on word arrays.
+This low-level interface is intended as an implementation tool
+for higher-level operations and types,
+including those mentioned above.
+These operations can be built upon the wide operations
+presented in
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2017/p0103r1.html">P0103r1
+Overflow-Detecting and Double-Wide Arithmetic Operations</a>.
+</p>
+
+
+<h3><a name="DefinitionWord">Definition of Word</a></h3>
+
+<p>
+A word is one of the types
+<code>single_sword</code> or <code>single_uword</code>
+as defined in
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2017/p0103r1.html">P0103r1
+Overflow-Detecting and Double-Wide Arithmetic Operations</a>.
+</p>
+
+
+<h3><a name="MultiIntTypes">Multi-Int Types</a></h3>
+
+<p>
+We provide multi-word versions of standard C++ integers.
+We call these multi-int types.
+</p>
+
+<pre><code>template&lt;int words&gt; multi_int;
+template&lt;int words&gt; multi_uint;</code>
+</pre>
+
+<p>
+The following binary operators take
+two multi-int arguments of arbitrary size and sign.
+For the non-boolean results,
+the result type size is that of its largest argument.
+The result sign is unsigned if either argument is unsigned.
+There are also functions for a word with a multi-int.
+</p>
+
+<pre><code>~ * / % + - &lt; &gt; &lt;= &gt;= == != &amp; | ^
+= *= /= %= += -= &lt; &gt; &lt;= &gt;= &amp;= |= ^=</code>
+</pre>
+
+<p>
+The following binary operators take
+a left-hand multi-int argument (of arbitrary size and sign)
+and a right-hand word argument.
+The result type is the type of the left-hand argument.
+</p>
+
+<pre><code>&lt;&lt; &gt;&gt; &lt;&lt;= &gt;&gt;=</code>
+</pre>
+
+<p>
+There are conversions
+between the multi-int types and
+between them and the word types.
+</p>
+
+<p>
+All types implicitly convert to <code>bool</code>
+via the normal rules.
+</p>
+
+<p>
+Functions return by value.
+Because these types are potentially large,
+programmers should consider using compound assignment.
+</p>
+
+<p>
+It seems reasonable to require
+<code>multi_int</code> to use a two's complement representation.
+However, the wording does not do so.
+</p>
+
+
+<h3><a name="WordArray">Word Array Functions</a></h3>
+
+<p>
+Word array functions provide mechanisms
+for efficient implementation of higher-level multi-word operations.
+</p>
+
+<p>
+For each of the <code>split_</code>... functions in
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2017/p0103r1.html">
+P0103R1</a>,
+there is are four functions of the following forms.
+</p>
+<dl>
+
+<dt>word fn( int length, word* result, const word* arg1, const word* arg2, ... )</dt>
+<dt>word fn( int length, word* result, const word* arg1, word arg2, ... )</dt>
+<dd><p>
+These form would be used in the implementation of value-returning operations.
+The lengths of the arrays must be the same,
+so there is only a single length argument.
+The returned value is the 'carry out'.
+</p></dd>
+
+<dt>word fn( int length, word* result_and_arg1, const word* arg2, ... )</dt>
+<dt>word fn( int length, word* result_and_arg1, word arg2, ... )</dt>
+<dd><p>
+The first paramer is both the first argument and the result.
+This form would be used in the implementation of compound-assignment operations.
+The returned value is the 'carry out'.
+</p></dd>
+
+</dl>
+
+<p>
+These operations are not intended to provide complete multi-word operations,
+but rather to handle arrays with uniform operations.
+Higher-level operations then compose these operations into a complete operation.
+For example adding an n-word array to an m-word array, where n&gt;m,
+would be accomplished by an m-word array plus array
+followd by an (n-m)-word array
+plus the word carried from the previous operation.
+</p>
+
+<p>
+
+
+</p><h2><a name="Wording">Wording</a></h2>
+
+
+<h3><a name="numbers.multiint">?.?.1 Multi-int arithmetic [numbers.multiint]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+Multi-int arithmentic is provided via two class templates
+and a set of functions mirroring the operations on built-in integral types.
+</p>
+
+<p>
+In functions described in this section,
+implementations should enable the return value optimization.
+</p>
+
+
+</blockquote>
+
+
+<h3><a name="numbers.multiint.types">?.?.1.1 Multi-int types [numbers.multiint.types]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+<code>template &lt;int words&gt; multi_int;</code>
+<br>
+<code>template &lt;int words&gt; multi_uint;</code>
+</p>
+
+</blockquote>
+
+
+<h3><a name="numbers.multiint.member">?.?.1.2 Multi-int member functions [numbers.multiint.member]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+The special member functions are as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;::multi_int(
+const multi_int&amp; arg
+) noexcept = default;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;::multi_uint(
+const multi_uint&amp; arg
+) noexcept = default;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;&amp;
+<br>
+multi_int&lt;words&gt;::operator =(
+const multi_int&amp; arg
+) noexcept = default;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;&amp;
+<br>
+multi_uint&lt;words&gt;::operator =(
+const multi_uint&amp; arg
+) noexcept = default;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Constructs or assigns the object with the given argument.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+Additional constructors are as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;::multi_int(
+single_sword arg
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+explicit multi_int&lt;words&gt;::multi_int(
+single_uword arg
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;::multi_uint(
+single_uword arg,
+) noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Constructs the object with the given argument.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+Conversion operators are as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+explicit multi_int&lt;words&gt;::operator single_sword()
+noexcept</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+explicit multi_uint&lt;words&gt;::operator single_uword()
+) noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The value of the object with any overly-large values
+handles as would built-in conversions.
+</p></dd>
+
+</dl>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;::operator bool()
+noexcept</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+explidit multi_uint&lt;words&gt;::operator bool()
+) noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>false</code> if the value is zero,
+<code>true</code> otherwise.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+For each assignment operator <var>OP</var> in
+{ <code>= *= /= %= += -= &amp;= |= ^=</code> },
+there shall be member functions as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words1&gt;
+template &lt;int words2&gt;
+<br>
+multi_int&lt;words1&gt;&amp;
+<br>
+multi_int&lt;words1&gt;::operator </code><var>OP</var><code>(
+const multi_int&lt;words2&gt;&amp; arg
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1&gt;
+template &lt;int words2&gt;
+<br>
+multi_int&lt;words1&gt;&amp;
+<br>
+multi_int&lt;words1&gt;::operator </code><var>OP</var><code>(
+const multi_uint&lt;words2&gt;&amp; arg
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1&gt;
+template &lt;int words2&gt;
+<br>
+multi_uint&lt;words1&gt;&amp;
+<br>
+multi_uint&lt;words1&gt;::operator </code><var>OP</var><code>(
+const multi_int&lt;words2&gt;&amp; arg
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1&gt;
+template &lt;int words2&gt;
+<br>
+multi_uint&lt;words1&gt;&amp;
+<br>
+multi_uint&lt;words1&gt;::operator </code><var>OP</var><code>(
+const multi_uint&lt;words2&gt;&amp; arg
+) noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Assigns a value
+as would the corresponding built-in operations on built-in integral types.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+A reference to the object.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+For each assignment operator <var>OP</var> in
+{ <code>&lt;&lt;= &gt;&gt;=</code> },
+there shall be functions as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;&amp;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words&gt;&amp; arg1,
+int arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;&amp;
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words&gt;&amp; arg1,
+int arg2
+) noexcept;</code>
+<br><br>
+
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Assigns a value
+as would the corresponding built-in operations on built-in integral types.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+A reference to the object.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+The attribute query functions are as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+static constexpr size_t
+<br>
+multi_int&lt;words&gt;::num_words() noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+static constexpr size_t
+<br>
+multi_uint&lt;words&gt;::num_words() noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The number of words in the type.
+</p></dd>
+
+</dl>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+static constexpr size_t
+<br>
+multi_int&lt;words&gt;::num_bits() noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+static constexpr size_t
+<br>
+multi_uint&lt;words&gt;::num_bits() noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The total number of bits in the type.
+For <code>multi_int</code>, this number will include the sign bit.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+</blockquote>
+
+
+<h3><a name="numbers.multiint.free">?.?.1.3 Multi-int free functions [numbers.multiint.free]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+For each unary operator <var>OP</var> in
+{ <code>+ - ~</code> },
+there shall be a function as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words1&gt;&amp; arg
+) noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a result
+as would the corresponding built-in operations on built-in integral types.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The result.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+For each binary operator <var>OP</var> in
+{ <code>* / % + - &amp; | ^</code> },
+there shall be functions as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+
+<code>template &lt;int words1, int words2&gt;
+<br>
+multi_int&lt;std::max(words1,words2)&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words1&gt;&amp; arg1,
+const multi_int&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1, int words2&gt;
+<br>
+multi_uint&lt;std::max(words1,words2)&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+const multi_int&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1, int words2&gt;
+<br>
+multi_uint&lt;std::max(words1,words2)&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words1&gt;&amp; arg1,
+const multi_uint&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1, int words2&gt;
+<br>
+multi_uint&lt;std::max(words1,words2)&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+const multi_uint&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words&gt;&amp; arg1,
+single_sword arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+single_sword arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words1&gt;&amp; arg1,
+single_uword arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+single_uword arg2
+) noexcept;</code>
+<br><br>
+
+<code>template &lt;int words&gt;
+<br>
+multi_int&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+single_sword arg1,
+const multi_int&lt;words&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+single_sword arg1,
+const multi_uint&lt;words1&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+single_uword arg1,
+const multi_int&lt;words1&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;
+<br>
+operator </code><var>OP</var><code>(
+single_uword arg1,
+const multi_uint&lt;words1&gt;&amp; arg2
+) noexcept;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a result
+as would the corresponding built-in operations on built-in integral types.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The result.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+For each binary operator <var>OP</var> in
+{ <code>&lt; &gt; &lt;= &gt;= == !=</code> },
+there shall be functions as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words1, int words2&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words1&gt;&amp; arg1,
+const multi_int&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1, int words2&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+const multi_int&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1, int words2&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words1&gt;&amp; arg1,
+const multi_uint&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words1, int words2&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+const multi_uint&lt;words2&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+
+<code>template &lt;int words&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+single_sword arg1,
+const multi_int&lt;words&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words&gt;&amp; arg1,
+single_sword arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+single_uword arg1,
+const multi_uint&lt;words1&gt;&amp; arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+bool
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words1&gt;&amp; arg1,
+single_uword arg2,
+) noexcept;</code>
+
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a result
+as would the corresponding built-in operations on built-in integral types.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The result.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+<p>
+For each binary operator <var>OP</var> in
+{ <code>&lt;&lt; &gt;&gt;</code> },
+there shall be functions as follows.
+</p>
+
+<blockquote>
+
+<p class="function">
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;&amp;
+<br>
+operator </code><var>OP</var><code>(
+const multi_int&lt;words&gt;&amp; arg1,
+int arg2
+) noexcept;</code>
+<br><br>
+<code>template &lt;int words&gt;
+<br>
+multi_uint&lt;words&gt;&amp;
+<br>
+operator </code><var>OP</var><code>(
+const multi_uint&lt;words&gt;&amp; arg1,
+int arg2
+) noexcept;</code>
+<br><br>
+
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a result
+as would the corresponding built-in operations on built-in integral types.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The result.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+</blockquote>
+
+<h3><a name="numbers.wordarray">?.?.2 Word array arithmetic [numbers.wordarray]</a></h3>
+
+<p>
+Section contents to be determined.
+</p>
+
+
+<h2><a name="Revisions">Revisions</a></h2>
+
+<p>
+This paper modifies
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0104r0.html">
+P0104R0</a> - 2015-09-27.
+</p>
+
+<ul>
+
+<li><p>
+Add Revisions section.
+</p></li>
+
+<li><p>
+Add Wording section.
+</p></li>
+
+<li><p>
+Remove Open Issues section.
+</p></li>
+
+<li><p>
+Clarify the distinction between multi-word and multi-int.
+The former is generic and the later is a specific set of types.
+</p></li>
+
+<li><p>
+Rename 'subarray' to 'word array'
+and substantially change the sections.
+They now reference
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2017/p0103r1.html">
+P0103R1</a>.
+</p></li>
+
+<li><p>
+Move non-explanitory definitional statements from the Solution to the Wording.
+</p></li>
+
+<li><p>
+Change the definition of words to reflect.
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2017/p0103r1.html">
+P0103R1</a>.
+</p></li>
+
+<li><p>
+Add <code>num_words</code> and <code>num_bits</code> type query functions.
+</p></li>
+
+<li><p>
+Add operations with a single word.
+</p></li>
+
+<li><p>
+Add conversions to and from a single word.
+</p></li>
+
+</ul>
+
+
+
+</body></html>

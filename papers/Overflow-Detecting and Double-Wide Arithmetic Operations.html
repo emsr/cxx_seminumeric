@@ -1,0 +1,1114 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+
+<style type="text/css">
+
+body {
+  color: #000000;
+  background-color: #FFFFFF;
+}
+
+del {
+  text-decoration: line-through;
+  color: #8B0040;
+}
+ins {
+  text-decoration: underline;
+  color: #005100;
+}
+
+p.example {
+  margin: 2em;
+}
+pre.example {
+  margin: 2em;
+}
+div.example {
+  margin: 2em;
+}
+
+code.extract {
+  background-color: #F5F6A2;
+}
+pre.extract {
+  margin: 2em;
+  background-color: #F5F6A2;
+  border: 1px solid #E1E28E;
+}
+
+p.function {
+}
+
+p.attribute {
+  text-indent: 3em;
+}
+
+blockquote.std {
+  color: #000000;
+  background-color: #F1F1F1;
+  border: 1px solid #D1D1D1;
+  padding: 0.5em;
+}
+
+blockquote.stddel {
+  text-decoration: line-through;
+  color: #000000;
+  background-color: #FFEBFF;
+  border: 1px solid #ECD7EC;
+  padding: 0.5em;
+}
+
+blockquote.stdins {
+  text-decoration: underline;
+  color: #000000;
+  background-color: #C8FFC8;
+  border: 1px solid #B3EBB3;
+  padding: 0.5em;
+}
+
+table {
+  border: 1px solid black;
+  border-spacing: 0px;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+}
+th {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.2em;
+  border: 1px solid black;
+}
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.2em;
+  border: 1px solid black;
+}
+
+</style>
+
+
+<title>Overflow-Detecting and Double-Wide Arithmetic Operations</title>
+</head>
+<body>
+<h1>Overflow-Detecting and Double-Wide Arithmetic Operations</h1>
+
+<p>
+Committee: ISO/IEC JTC1 SC22 WG21 SG6 Numerics<br>
+Document Number: P0103r1<br>
+Date: 2017-02-05<br>
+Authors: Lawrence Crowl<br>
+Reply To: Lawrence Crowl, Lawrence@Crowl.org
+</p>
+
+<h2>Abstract</h2>
+
+<p>
+We propose a set of functions for
+detecting overflow in basic integral operations
+and for
+basic integral operations producing double-wide results.
+</p>
+
+<h2>Contents</h2>
+
+<p>
+<a href="#Introduction">Introduction</a><br>
+<a href="#Problem">Problem</a><br>
+<a href="#Solution">Solution</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Overflow">Overflow-Detecting Arithmetic</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Double">Double-Wide Arithmetic</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#Functions">Functions</a><br>
+<a href="#Wording">Wording</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.overarith">?.?.1 Overflow-detecting arithmetic [numbers.overarith]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.widearith">?.?.2 Double-wide arithmetic [numbers.widearith]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.widearith.typedefs">?.?.2.1 Typedefs [numbers.widearith.typedefs]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.widearith.composition">?.?.2.2 Composition functions [numbers.widearith.composition]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.widearith.wide">?.?.2.3 Wide-result functions [numbers.widearith.wide]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.widearith.split">?.?.2.4 Split-result functions [numbers.widearith.split]</a><br>
+<a href="#Revisions">Revisions</a><br>
+</p>
+
+
+<h2><a name="Introduction">Introduction</a></h2>
+
+<p>
+Some integer arithmetic operations can overflow their representation.
+Machine architectures generally provide mechanisms
+to either detect or to construct larger representations in software.
+</p>
+
+<ul>
+
+<li><p>
+Machines commonly provide an overflow status,
+which can be tested in a branch instruction.
+</p></li>
+
+<li><p>
+Machines commonly provide a carry status,
+which can be used with an "add with carry" instruction.
+The "add with carry" instruction can help implement multi-word addition.
+</p></li>
+
+<li><p>
+Machines may provide a double-wide multiply instruction,
+which provides the upper and lower halves of a multiplication result
+in separate words.
+The double-wide multiply instruction
+can help implement multi-word multiplication.
+</p></li>
+
+<li><p>
+Machines may provide a double-wide divide instruction,
+which provides a dividend with double the size of the divisor.
+These can vary in the length of the quotient
+and whether they return a remainder.
+The double-wide division instruction
+can help implement multi-word division.
+</p></li>
+
+<li><p>
+Machines may provide a double-wide shift instructions,
+which provides a result double the size of the shifted value.
+The double-wide shift instructions
+can help implement scaling for fixed-point arithmetic.
+</p></li>
+
+</ul>
+
+
+<h2><a name="Problem">Problem</a></h2>
+
+<p>
+C and C++ programmers have no standard mechanism
+to access the machine mechanisms.
+So, programmers coding within the standards
+resort to argument pre-checking or subword-emulation.
+Such code is difficult to get right and inefficient.
+</p>
+
+<p>
+More perversely,
+because C, C++, and Fortran do not provide the mechanisms,
+machine architects are sometimes no longer including them,
+which makes some problems difficult to solve efficiently.
+</p>
+
+<p>
+Getting compiler support for generating the appropriate instruction sequences
+is generally easier when the mechanisms span more than one language.
+This observation means that both C and C++ should support the same mechanism.
+</p>
+
+
+<h2><a name="Solution">Solution</a></h2>
+
+<p>
+We propose a set of functions that provide access to machine mechanisms.
+We do <em>not</em> intend that these functions be end-user functions.
+Our intent is that these functions be tools
+for library authors to implement types more appropriate to end users.
+The proposal here is essentially a hardware abstraction layer.
+</p>
+
+<p>
+With use limited to library authors,
+the syntax can be somewhat more demanding,
+which in turn means that a syntax suitable for both C and C++
+is acceptable.
+We rely on type-generic macros in C and overloading in C++.
+Note however, that the operations are applicable beyond built-in types in C++.
+For larger types, const reference parameters may be more appropriate.
+</p>
+
+
+<h3><a name="Overflow">Overflow-Detecting Arithmetic</a></h3>
+
+<p>
+The overflow-detecting functions
+return a boolean true when the operation overflows,
+and a boolean false when the operation does not overflow.
+Compilers may assume that a true result is rare.
+When the return is false,
+the function writes the operation result through the given pointer.
+When the return is true,
+the pointer is not used and no write occurs.
+</p>
+
+
+<h3><a name="Double">Double-Wide Arithmetic</a></h3>
+
+<p>
+There are two classes of functions,
+those that provide a result in a double-wide type
+and those that provide a result split into two single-wide types.
+The latter serves well in implementing multi-word arithmetic.
+</p>
+
+<dl>
+
+<dt>double-wide result</dt>
+<dd><p>
+The result is the function return value.
+</p></dd>
+
+<dt>split result</dt>
+<dd><p>
+The high-order half of the result is the function return value.
+In multi-word arithmetic,
+this half is the carry.
+The low-order half of the result written through an argument pointer.
+In multi-word arithmetic,
+this half is the portion to be stored in a word.
+To facilitate multi-word arithmetic,
+types of the halves are always unsigned.
+The intent is that in loops,
+the lower part is written once to memory
+while the upper part is carried between iterations in a local variable.
+</p></dd>
+
+</dl>
+
+<p>
+When implementing multi-word arithmetic,
+the appropriate word size depends on the target architecture.
+To provide the approprate word size,
+we provide a set of typedefs for the natural/efficient size
+of signed and unsigned versions
+of both the single-wide and double-wide types.
+</p>
+
+<p>
+We provide functions to build a double-wide type from two halves
+and to split a double-wide type into halves.
+</p>
+
+
+<h3><a name="Functions">Functions</a></h3>
+
+<p>
+We use the following codes are components of function names.
+</p>
+
+<table>
+
+<tbody><tr><th>code</th>
+<th>meaning</th></tr>
+
+<tr><td><code>cvt</code></td>
+<td>The value converted to the result type.</td></tr>
+
+<tr><td><code>neg</code></td>
+<td>The negative of the value.</td></tr>
+
+<tr><td><code>add</code></td>
+<td>The sum of the augend and addend.</td></tr>
+
+<tr><td><code>sub</code></td>
+<td>The difference of minuend and subtrahend.</td></tr>
+
+<tr><td><code>add2</code></td>
+<td>The sum of the augend and two addends.
+This operation is useful in multiword addition.</td></tr>
+
+<tr><td><code>sub2</code></td>
+<td>The difference of the minuend and two subtrahends.
+This operation is useful in multiword subtraction.</td></tr>
+
+<tr><td><code>lsh</code></td>
+<td>The multiplicand shifted left by the count,
+i.e. the product of the multiplicand and 2<sup>count</sup>.</td></tr>
+
+<tr><td><code>lshadd</code></td>
+<td>The sum of the multiplicand shifted left by the count and the addend.
+i.e. the sum of (the product of the multiplicand and 2<sup>count</sup>)
+and the addend.
+The first value shifted left by the count
+and then sumed with the second value.
+This operation is useful with multiword scaled addition.</td></tr>
+
+<tr><td><code>mul</code></td>
+<td>The product of the multiplier and multiplicand.</td></tr>
+
+<tr><td><code>muladd</code></td>
+<td>The sum of (the product of the multiplicand and the multiplier)
+and the addend.
+This operation is useful with multiword multiplication.</td></tr>
+
+<tr><td><code>muladd2</code></td>
+<td>The sum of (the product of the multiplicand and the multiplier)
+and the two addends.
+This operation is useful with multiword multiplication.</td></tr>
+
+<tr><td><code>mulsub</code></td>
+<td>The difference of (the product of the multiplicand and the multiplier)
+and the subtrahend.</td></tr>
+
+<tr><td><code>mulsub2</code></td>
+<td>The difference of (the product of the multiplicand and the multiplier)
+and the two subtrahend.</td></tr>
+
+<tr><td><code>divn</code></td>
+<td>The narrow quotient of the dividend and divisor.</td></tr>
+
+<tr><td><code>divw</code></td>
+<td>The wide quotient of the dividend and divisor.</td></tr>
+
+<tr><td><code>divnrem</code></td>
+<td>As with <code>divn</code>
+except also computing a remainder with the sign of the divisor.</td></tr>
+
+<tr><td><code>divwrem</code></td>
+<td>As with <code>divw</code>
+except also computing a remainder with the sign of the divisor.</td></tr>
+
+</tbody></table>
+
+
+<h2><a name="Wording">Wording</a></h2>
+
+
+<h3><a name="numbers.overarith">?.?.1 Overflow-detecting arithmetic [numbers.overarith]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p class="function">
+<code>template &lt;typename C, typename T&gt;
+bool overflow_cvt( C* result, T a );</code>
+<br>
+<code>template &lt;typename T&gt;
+bool overflow_neg( T* result, T a );</code>
+<br>
+<code>template &lt;typename T&gt;
+bool overflow_lsh( T* result, T a, int b );</code>
+<br>
+<code>template &lt;typename T&gt;
+bool overflow_add( T* result, T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;
+bool overflow_sub( T* result, T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;
+bool overflow_mul( T* result, T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;
+bool overflow_div( T* result, T a, T b );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Effects:</dt>
+<dd><p>
+Computes an expression as in the following table.
+</p>
+<table>
+<tbody><tr>
+<td><code>overflow_add</code></td><td><code>a+b</code></td>
+<td><code>overflow_mul</code></td><td><code>a*b</code></td>
+<td><code>overflow_neg</code></td><td><code>-a</code></td>
+</tr>
+<tr>
+<td><code>overflow_sub</code></td><td><code>a-b</code></td>
+<td><code>overflow_div</code></td><td><code>a/b</code></td>
+<td><code>overflow_lsh</code></td><td><code>a&lt;&lt;b</code></td>
+</tr>
+<tr>
+<td></td><td></td>
+<td></td><td></td>
+<td><code>overflow_cvt</code></td><td><code>static_cast&lt;C&gt;(a)</code></td>
+</tr>
+</tbody></table>
+<p>
+If there is no overflow, writes the computed value to <code>*result</code>.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+<code>true</code> if the computation overflows,
+<code>false</code> otherwise.
+</p></dd>
+
+<dt>Notes:</dt>
+<dd>
+<ul>
+
+<li><p>
+Compilers may assume that overflow is rare.
+</p></li>
+
+<li><p>
+Overflow can occur for the expressions
+<code>-MIN_INT</code>
+and
+<code>MIN_INT/-1</code>
+with two's complement representation.
+</p></li>
+
+</ul>
+</dd>
+
+</dl>
+
+</blockquote>
+
+
+<h3><a name="numbers.widearith">?.?.2 Double-wide arithmetic [numbers.widearith]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+In the specifications below,
+</p>
+<dl>
+
+<dt><var>D</var>(<code>T</code>)</dt>
+<dd><p>
+identifies a type with the same attributes as <code>T</code>
+except with double the size.
+</p></dd>
+
+<dt><var>H</var>(<code>T</code>)</dt>
+<dd><p>
+identifies a type with the same attributes as <code>T</code>
+except with half the size.
+</p></dd>
+
+<dt><var>S</var>(<code>T</code>)</dt>
+<dd><p>
+identifies a type with the same attributes as <code>T</code>
+except that it is signed.
+</p></dd>
+
+<dt><var>U</var>(<code>T</code>)</dt>
+<dd><p>
+identifies a type with the same attributes as <code>T</code>
+except that it is unsigned.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+
+<h3><a name="numbers.widearith.typedefs">?.?.2.1 Typedefs [numbers.widearith.typedefs]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+<code>typedef
+</code><var>implementation-defined</var><code>
+single_sword;</code>
+<br>
+<code>typedef
+</code><var>U</var>(<code>single_sword</code>)<code>
+single_uword;</code>
+<br>
+<code>typedef
+</code><var>D</var>(<code>single_sword</code>)<code>
+double_sword;</code>
+<br>
+<code>typedef
+</code><var>D</var>(<code>single_uword</code>)<code>
+double_uword;</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd><p>
+<code>single_sword</code> is a signed integral type.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+
+<h3><a name="numbers.widearith.composition">?.?.2.2 Composition functions [numbers.widearith.composition]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+<p class="function">
+<code>template &lt;typename T&gt;</code>
+<var>H</var>(<var>U</var>(<code>T</code>))
+<code>split_upper( T a );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>H</var>(<var>U</var>(<code>T</code>))
+<code>split_lower( T a );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd><p>
+<code>T</code> is integral.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+for <code>split_upper</code>,
+the high-magnitude half of <code>a</code>;
+for <code>split_lower</code>,
+the low-magnitude half of <code>a</code>.
+</p></dd>
+
+</dl>
+
+<p class="function">
+<code>template &lt;typename T&gt;</code>
+<var>S</var>(<var>D</var>(<code>T</code>))
+<code>wide_signed( T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<var>D</var>(<code>T</code>))
+<code>wide_unsigned( T a, T b );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd><p>
+<code>T</code> is integral and unsigned.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+the value formed by concatenating the two halves,
+with <code>a</code> high and <code>b</code> low.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+
+<h3><a name="numbers.widearith.wide">?.?.2.3 Wide-result functions [numbers.widearith.wide]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p class="function">
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_neg( T a );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_add( T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_sub( T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_add2( T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_sub2( T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_lsh( T a, int b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_lshadd( T a, int b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_lshsub( T a, int b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_mul( T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_muladd( T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_mulsub( T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_muladd2( T a, T b, T c, T d );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_mulsub2( T a, T b, T c, T d );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<code>T</code>
+<code>wide_divn( </code><var>D</var>(<code>T</code>)<code> a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_divw( </code><var>D</var>(<code>T</code>)<code> a, T b );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd>
+<ul>
+
+<li><p>
+<code>T</code> is integral.
+</p></li>
+
+<li><p>
+For
+<code>wide_lsh</code>,
+<code>wide_lshadd</code> and
+<code>wide_lshsub</code>,
+the shift count <code>b</code>
+shall be non-negative and less than the number of bits in <code>T</code>.
+</p></li>
+
+<li><p>
+For
+<code>wide_muladd</code> and
+<code>wide_mulsub</code>,
+at least one of <code>a</code> and <code>b</code>
+shall not be the minimum integer in two's complement representation.
+</p></li>
+
+<li><p>
+For
+<code>wide_muladd2</code> and
+<code>wide_mulsub2</code>,
+both of <code>a</code> and <code>b</code>
+shall not be the minimum integer in two's complement representation.
+</p></li>
+
+<li><p>
+For
+<code>wide_divn</code> and
+<code>wide_divw</code>,
+the divisor (<code>b</code>)
+shall not be zero.
+</p></li>
+
+</ul>
+</dd>
+
+<dt>Effects:</dt>
+<dd><p>
+Computes an expression as in the following table,
+with each argument (except shift count)
+promoted to <var>D(<code>T</code>)</var>.
+</p>
+<table>
+<tbody><tr>
+<td><code>wide_neg</code></td><td><code>-a</code></td>
+<td><code>wide_lsh</code></td><td><code>a&lt;&lt;b</code></td>
+<td><code>wide_mul</code></td><td><code>a*b</code></td>
+</tr>
+<tr>
+<td><code>wide_add</code></td><td><code>a+b</code></td>
+<td><code>wide_lshadd</code></td><td><code>(a&lt;&lt;b)+c</code></td>
+<td><code>wide_muladd</code></td><td><code>a*b+c</code></td>
+</tr>
+<tr>
+<td><code>wide_sub</code></td><td><code>a-b</code></td>
+<td><code>wide_lshsub</code></td><td><code>(a&lt;&lt;b)-c</code></td>
+<td><code>wide_mulsub</code></td><td><code>a*b-c</code></td>
+</tr>
+<tr>
+<td><code>wide_add2</code></td><td><code>a+b+c</code></td>
+<td><code>wide_divn</code></td><td><code>a/b</code></td>
+<td><code>wide_muladd2</code></td><td><code>a*b+c+d</code></td>
+</tr>
+<tr>
+<td><code>wide_sub2</code></td><td><code>a-b-c</code></td>
+<td><code>wide_divw</code></td><td><code>a/b</code></td>
+<td><code>wide_mulsub2</code></td><td><code>a*b-c-d</code></td>
+</tr>
+</tbody></table>
+</dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The computed value.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;</code>
+<code>T</code>
+<code>wide_divnrem( T* remainder, </code><var>D</var>(<code>T</code>)<code> a,
+T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>D</var>(<code>T</code>)
+<code>wide_divwrem( T* remainder, </code><var>D</var>(<code>T</code>)<code> a,
+T b );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd><ul>
+
+<li><p>
+<code>T</code> is integral.
+</p></li>
+
+<li><p>
+The value of the expression <code>a/b</code>
+shall be representable in the return type.
+</p></li>
+
+<li><p>
+The divisor (<code>b</code>) shall not be zero.
+</p></li>
+
+</ul></dd>
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a quotient (<code>a/b</code>) and a remainder (<code>a%b</code>).
+The remainder shall have the same sign as the divisor (<code>b</code>).
+Writes the remainder to <code>*remainder</code>.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The quotient.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+
+<h3><a name="numbers.widearith.split">?.?.2.4 Split-result functions [numbers.widearith.split]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p class="function">
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_neg( </code><var>U</var>(<code>T</code>)<code>* low,
+T a );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_add( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_sub( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_add2( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_sub2( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_lsh( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, int b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_lshadd( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, int b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_lshsub( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, int b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_mul( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_muladd( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_mulsub( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b, T c );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_muladd2( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b, T c, T d );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_mulsub2( </code><var>U</var>(<code>T</code>)<code>* low,
+T a, T b, T c, T d );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<code>T</code>
+<code>split_divn( </code><var>U</var>(<code>T</code>)<code>* low,
+</code><var>U</var>(<code>T</code>)<code> ah,
+</code><var>U</var>(<code>T</code>)<code> al,
+T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_divw( </code><var>U</var>(<code>T</code>)<code>* low,
+</code><var>U</var>(<code>T</code>)<code> ah,
+</code><var>U</var>(<code>T</code>)<code> al,
+T b );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd>
+<ul>
+
+<li><p>
+<code>T</code> is integral.
+</p></li>
+
+<li><p>
+For
+<code>split_lsh</code>,
+<code>split_lshadd</code> and
+<code>split_lshsub</code>,
+the shift count <code>b</code>
+shall be non-negative and less than the number of bits in <code>T</code>.
+</p></li>
+
+<li><p>
+For
+<code>split_muladd</code> and
+<code>split_mulsub</code>,
+at least one of <code>a</code> and <code>b</code>
+shall not be the minimum integer in two's complement representation.
+</p></li>
+
+<li><p>
+For
+<code>split_muladd2</code> and
+<code>split_mulsub2</code>,
+both of <code>a</code> and <code>b</code>
+shall not be the minimum integer in two's complement representation.
+</p></li>
+
+<li><p>
+For
+<code>split_divn</code> and
+<code>split_divw</code>,
+the divisor (<code>b</code>)
+shall not be zero.
+</p></li>
+</ul>
+
+</dd>
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a value (<code>a</code>) of type <var>D</var>(<code>T</code>)
+by concatentating the high (<code>ah</code>) and low (<code>ah</code>) halves.
+Computes an expression as in the following table,
+with each argument (except shift count)
+promoted to <var>D(<code>T</code>)</var>.
+</p>
+<table>
+<tbody><tr>
+<td><code>split_neg</code></td><td><code>-a</code></td>
+<td><code>split_lsh</code></td><td><code>a&lt;&lt;b</code></td>
+<td><code>split_mul</code></td><td><code>a*b</code></td>
+</tr>
+<tr>
+<td><code>split_add</code></td><td><code>a+b</code></td>
+<td><code>split_lshadd</code></td><td><code>(a&lt;&lt;b)+c</code></td>
+<td><code>split_muladd</code></td><td><code>a*b+c</code></td>
+</tr>
+<tr>
+<td><code>split_sub</code></td><td><code>a-b</code></td>
+<td><code>split_lshsub</code></td><td><code>(a&lt;&lt;b)-c</code></td>
+<td><code>split_mulsub</code></td><td><code>a*b-c</code></td>
+</tr>
+<tr>
+<td><code>split_add2</code></td><td><code>a+b+c</code></td>
+<td><code>split_divn</code></td><td><code>a/b</code></td>
+<td><code>split_muladd2</code></td><td><code>a*b+c+d</code></td>
+</tr>
+<tr>
+<td><code>split_sub2</code></td><td><code>a-b-c</code></td>
+<td><code>split_divw</code></td><td><code>a/b</code></td>
+<td><code>split_mulsub2</code></td><td><code>a*b-c-d</code></td>
+</tr>
+</tbody></table>
+<p>
+Writes the low half of the computed result to <code>*low</code>.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+The high half of the computed result.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;</code>
+<code>T</code>
+<code>split_divnrem( T* remainder,
+</code><var>U</var>(<code>T</code>)<code> ah,
+</code><var>U</var>(<code>T</code>)<code> al,
+T b );</code>
+<br>
+<code>template &lt;typename T&gt;</code>
+<var>U</var>(<code>T</code>)
+<code>split_divwrem( </code><var>U</var>(<code>T</code>)<code>* low,
+T* remainder,
+</code><var>U</var>(<code>T</code>)<code> ah,
+</code><var>U</var>(<code>T</code>)<code> al,
+T b );</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Requires:</dt>
+<dd><ul>
+
+<li><p>
+<code>T</code> is integral.
+</p></li>
+
+<li><p>
+For <code>split_divnrem</code>,
+the value of the expression <code>a/b</code>
+shall be representable in <code>T</code>.
+For <code>split_divwrem</code>,
+the value of the expression <code>a/b</code>
+shall be representable in <var>D</var>(<code>T</code>).
+</p></li>
+
+<li><p>
+The divisor (<code>b</code>) shall not be zero.
+</p></li>
+
+</ul></dd>
+
+<dt>Effects:</dt>
+<dd><p>
+Computes a value (<code>a</code>) of type <var>D</var>(<code>T</code>)
+by concatentating the high (<code>ah</code>) and low (<code>ah</code>) halves.
+Computes a quotient (<code>a/b</code>) and a remainder (<code>a%b</code>).
+The remainder shall have the same sign as the divisor (<code>b</code>).
+Writes the remainder to <code>*remainder</code>.
+For <code>split_divwrem</code>,
+writes the low half of the computed result to <code>*low</code>.
+</p></dd>
+
+<dt>Returns:</dt>
+<dd><p>
+For <code>split_divnrem</code>,
+the quotient;
+for <code>split_divwrem</code>,
+the high half of the quotient.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+
+<h2><a name="Revisions">Revisions</a></h2>
+
+<p>
+This paper modifies
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0103r0.html">
+P0103R0</a> - 2015-09-27.
+</p>
+
+<ul>
+
+<li><p>
+Add Revisions section.
+</p></li>
+
+<li><p>
+Add Wording section.
+</p></li>
+
+<li><p>
+Move non-explanitory definitional statements from the Solution to the Wording.
+</p></li>
+
+<li><p>
+Remove the reference to 
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0102r0.html">
+P0102R0 C++ Parametric Number Type Aliases</a>.
+</p></li>
+
+<li><p>
+Remove the type macros.
+A set of typedefs for the natural size is sufficient.
+</p></li>
+
+<li><p>
+Add <code>overflow_div</code>
+to handle the case of two's complement <code>MIN_INT/-1</code>.
+</p></li>
+
+<li><p>
+Add <code>wide_neg</code> and <code>split_neg</code>
+to handle the case of two's complement <code>-MIN_INT</code>.
+</p></li>
+
+<li><p>
+Make the decomposed halves of a double-wide number both be unsigned.
+This change aids implementation of multi-word numbers as arrays.
+</p></li>
+
+<li><p>
+Remove Open Issues section.
+</p></li>
+
+</ul>
+
+
+
+</body></html>

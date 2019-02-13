@@ -1,0 +1,1424 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html><head>
+
+<meta http-equiv="Content-Type" content="text/html; charset=windows-1252">
+
+<style type="text/css">
+
+body {
+  color: #000000;
+  background-color: #FFFFFF;
+}
+
+del {
+  text-decoration: line-through;
+  color: #8B0040;
+}
+ins {
+  text-decoration: underline;
+  color: #005100;
+}
+
+p.example {
+  margin: 2em;
+}
+pre.example {
+  margin: 2em;
+}
+div.example {
+  margin: 2em;
+}
+
+code.extract {
+  background-color: #F5F6A2;
+}
+pre.extract {
+  margin: 2em;
+  background-color: #F5F6A2;
+  border: 1px solid #E1E28E;
+}
+
+p.function {
+}
+
+p.attribute {
+  text-indent: 3em;
+}
+
+blockquote.std {
+  color: #000000;
+  background-color: #F1F1F1;
+  border: 1px solid #D1D1D1;
+  padding: 0.5em;
+}
+
+blockquote.stddel {
+  text-decoration: line-through;
+  color: #000000;
+  background-color: #FFEBFF;
+  border: 1px solid #ECD7EC;
+  padding: 0.5em;
+}
+
+blockquote.stdins {
+  text-decoration: underline;
+  color: #000000;
+  background-color: #C8FFC8;
+  border: 1px solid #B3EBB3;
+  padding: 0.5em;
+}
+
+table {
+  border: 1px solid black;
+  border-spacing: 0px;
+  border-collapse: collapse;
+  margin-left: auto;
+  margin-right: auto;
+}
+th {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.2em;
+  border: 1px solid black;
+}
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.2em;
+  border: 1px solid black;
+}
+
+</style>
+
+
+<title>Rounding and Overflow in C++</title>
+</head>
+<body>
+<h1>Rounding and Overflow in C++</h1>
+
+<p>
+Committee: ISO/IEC JTC1 SC22 WG21 SG6 Numerics<br>
+Document Number: P0105R1<br>
+Date: 2017-02-05<br>
+Authors: Lawrence Crowl<br>
+Reply To: Lawrence Crowl, Lawrence@Crowl.org
+</p>
+
+
+<h2>Abstract</h2>
+
+<p>
+We propose a set of types and functions for
+controlling rounding and overflow.
+</p>
+
+
+<h2>Contents</h2>
+
+<p>
+<a href="#Introduction">Introduction</a><br>
+<a href="#Rounding">Rounding</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#RoundStatus">Current Status</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#RoundMode">Modes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#RoundFunctions">Functions</a><br>
+<a href="#Overflow">Overflow</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#OverStatus">Current Status</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#OverMode">Modes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#OverFunctions">Functions</a><br>
+<a href="#Both">Both Rounding and Overflow</a><br>
+<a href="#Conversion">General Conversion</a><br>
+<a href="#Wording">Wording</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.round">?.?.1 Rounding [numbers.round]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.overflow">?.?.2 Overflow [numbers.overflow]</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;<a href="#numbers.roundover">?.?.3 Both Rounding and Overflow [numbers.roundover]</a><br>
+<a href="#Revisions">Revisions</a><br>
+</p>
+
+
+<h2><a name="Introduction">Introduction</a></h2>
+
+<p>
+C++ currently provides relatively poor facilities for controlling rounding.
+It has even fewer facilities for controlling overflow.
+The lack of such facilities often leads programmers to ignore the issue, 
+making software less robust than it could be (and should be).
+</p>
+
+<p>
+This paper presents the issues
+and provides some candidate enumerations and operations.
+The intent of the paper is to gather feedback on
+support for and direction of future work.
+</p>
+
+
+<h2><a name="Rounding">Rounding</a></h2>
+
+<p>
+Rounding is necessary whenever
+the resolution of a variable
+is coarser than the resolution of a value to be placed in that variable.
+</p>
+
+
+<h3><a name="RoundStatus">Current Status</a></h3>
+
+<p>
+The <code>numeric_limits</code> field <code>round_style</code>
+provides information on the style of rounding employed by a type.
+</p>
+
+<pre><code>namespace std {</code>
+<code>  enum float_round_style {</code>
+<code>    round_indeterminate = -1, //</code> indeterminable
+<code>    round_toward_zero = 0, //</code> toward zero
+<code>    round_to_nearest = 1, //</code> to the nearest representable value
+<code>    round_toward_infinity = 2, //</code> toward [positive] infinity
+<code>    round_toward_neg_infinity = 3 //</code> toward negative infinity
+<code>  };</code>
+<code>}</code>
+</pre>
+
+<p>
+This specification is incomplete
+in that it fails to specify what happens when
+the value is equally far from the two nearest representable values.
+</p>
+
+<p>
+The standard also says
+"Specializations for integer types
+shall return <code>round_toward_zero</code>."
+This requirement is somewhat misleading as
+a right-shift operation on a two's complement representation
+does not round toward zero.
+</p>
+
+<p>
+Headers <code>&lt;cfenv&gt;</code> and <code>&lt;fenv.h&gt;</code>
+provide functions for setting and getting
+the floating-point rounding mode,
+<code>fesetround</code> and <code>fegetround</code>, respectively.
+The mode is specified via a macro constant:
+</p>
+
+<table>
+<thead>
+<tr><th>Constant</th>
+    <th>Explanation</th></tr>
+</thead>
+<tbody>
+<tr><td><code>FE_DOWNWARD</code></td>
+    <td>rounding towards negative infinity</td></tr>
+<tr><td><code>FE_TONEAREST</code></td>
+    <td>rounding towards nearest integer</td></tr>
+<tr><td><code>FE_TOWARDZERO</code></td>
+    <td>rounding towards zero</td></tr>
+<tr><td><code>FE_UPWARD</code></td>
+    <td>rounding towards positive infinity </td></tr>
+</tbody>
+</table>
+
+<p>
+Again, the specification
+is incomplete with respect to <code>FE_TONEAREST</code>
+</p>
+
+
+<h3><a name="RoundMode">Modes</a></h3>
+
+<p>
+The number of rounding modes is perhaps unlimited.
+However, we can explore the space of reasonably efficient rounding modes
+with two notions, its direction and its domain.
+</p>
+
+<p>
+There are six precisely-defined rounding directions
+and at least three additional practical directions.
+They are:
+</p>
+
+<table>
+<tbody><tr><td>towards negative infinity</td>
+    <td>towards positive infinity</td></tr>
+<tr><td>towards zero</td>
+    <td>away from zero</td></tr>
+<tr><td>towards even</td>
+    <td>towards odd</td></tr>
+<tr><td>fastest execution time</td>
+    <td>smallest generated code</td></tr>
+<tr><td colspan="2">whatever, I'm not picky</td></tr>
+</tbody></table>
+
+<p>
+Of these directions,
+only towards even and towards odd are unbiased.
+</p>
+
+<p>
+Rounding towards odd has two desirable properties.
+First, the direction will not induce a carry out of the units position.
+This property avoids overflow and increased representation size.
+Second, because most operations
+tend to preserve zeros in the lowest bit,
+the towards-even direction carries less information than towards-odd.
+This effect increases as the number of bits decreases.
+However, rounding towards even produces numbers
+that are "nicer" than those produced by rounding towards odd.
+For example, you are more likely to get 10 than 9.9999999
+with rounding towards even.
+</p>
+
+<p>
+There are at least two direction domains:
+</p>
+
+<ul>
+<li><p>
+All values between two representable values move in the given direction.
+</p></li>
+<li><p>
+Only values midway between two representable values move in the given direction.
+Other values move to the nearest representable value.
+That is, the direction is a tie breaker.
+</p></li>
+</ul>
+
+<p>
+Several of the precise rounding modes are in current use.
+</p>
+
+<table>
+<thead>
+<tr><th>direction</th><th>domain</th><th>compatibility</th><th>uses</th></tr>
+</thead>
+<tbody>
+<tr>
+<td rowspan="2">towards negative infinity</td>
+<td>all</td>
+<td><code>round_toward_neg_infinity</code><br>
+    <code>FE_DOWNWARD</code></td>
+<td>interval arithmetic lower bound<br>
+    two's complement right shift</td>
+</tr>
+<tr>
+<td>tie</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td rowspan="2">towards positive infinity</td>
+<td>all</td>
+<td><code>round_toward_infinity</code><br>
+    <code>FE_UPWARD</code></td>
+<td>interval arithmetic upper bound</td>
+</tr>
+<tr>
+<td>tie</td>
+<td></td>
+<td>astronomy and navigation</td>
+</tr>
+<tr>
+<td rowspan="2">towards zero</td>
+<td>all</td>
+<td><code>round_toward_zero</code><br>
+    <code>FE_TOWARDZERO</code></td>
+<td>C/C++ integer division<br>
+    signed-magnitude right shift</td>
+</tr>
+<tr>
+<td>tie</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td rowspan="2">away from zero</td>
+<td>all</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>tie</td>
+<td>the <code>&lt;cmath&gt;</code> <code>round</code> functions</td>
+<td>schoolbook rounding</td>
+</tr>
+<tr>
+<td rowspan="2">towards nearest even</td>
+<td>all</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>tie</td>
+<td><code>round_to_nearest</code><br>
+    <code>FE_TONEAREST</code></td>
+<td>general floating-point computation</td>
+</tr>
+<tr>
+<td rowspan="2">towards nearest odd</td>
+<td>all</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>tie</td>
+<td></td>
+<td>some accounting rules<br>
+    best information preservation</td>
+</tr>
+<tr>
+<td colspan="2">fastest</td>
+<td></td>
+<td>low latency</td>
+</tr>
+<tr>
+<td colspan="2">smallest</td>
+<td></td>
+<td>low code space</td>
+</tr>
+<tr>
+<td colspan="2">unspecified</td>
+<td><code>round_indeterminate</code></td>
+<td>?</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+We represent the mode in C++ as an enumeration
+containing all the above modes.
+The unmotivated modes are <em>conditionally</em> supported.
+</p>
+
+
+<h3><a name="RoundFunctions">Functions</a></h3>
+
+<p>
+We already have rounding functions for converting
+floating-point numbers to integers.
+However, we need a facility
+that extends to different sizes of floating-point
+and between other numeric types.
+</p>
+
+<p>
+A rounding division function has obvious utility.
+</p>
+
+<p>
+Division by a power of two has substantial implementation efficiencies,
+and is used heavily in fixed-point arithmetic as a scaling mechanism.
+We represent the conjunction of these approaches
+with a rounding scale down (right shift).
+</p>
+
+<p>
+We can add other functions as needed.
+</p>
+
+
+<h2><a name="Overflow">Overflow</a></h2>
+
+<p>
+Overflow is possible whenever
+the range of an expression
+exceeds the range of a variable.
+</p>
+
+<h3><a name="OverStatus">Current Status</a></h3>
+
+<p>
+Signed integer overflow is undefined behavior.
+Programmers attempting to detect and handle overflow often get it wrong, 
+in that they end up using overflow to detect overflow.
+Suffice it to say that present solutions are inadequate.
+</p>
+
+<p>
+Unsigned integer overflow is defined to be mod 2<sup>bits-in-type</sup>.
+While this definition is exactly right when
+coding in modular arithmetic,
+it is counter-productive
+when one is using unsigned arithmetic
+to state that the value is non-negative.
+In the latter environment,
+undefined behavior on overflow is better,
+as it enables tools to detect problems.
+</p>
+
+<p>
+Floating-point overflow can be detected and altered
+via
+<code>fegetexceptflag</code>,
+<code>fesetexceptflag</code>,
+<code>feclearexcept</code>, and
+<code>feraiseexcept</code>
+with the value <code>FE_OVERFLOW</code>.
+However, such checking requires additional out-of-band effort.
+That is, any checking takes place
+in code separate from the operations themselves.
+</p>
+
+
+<h3><a name="OverMode">Modes</a></h3>
+
+<p>
+Several overflow modes are possible.
+We categorize them based on the choices in the base requirements.
+Other modes may be possible or desirable as well.
+</p>
+
+<p>
+Some error modes are as follows.
+</p>
+
+<blockquote>
+<dl>
+
+<dt>impossible</dt>
+<dd><p>
+Mathematically, overflow cannot occur.
+This mode is useful when an overflow specification is necessary,
+but compiler-based range propogation is insufficient to eliminating a check.
+The mode is an assertion on the part of the programmer.
+It invites reviewers to examine the accompanying proof.
+Ignoring overflow and letting the program stray into
+undefined behavior is a suitable implementation.
+</p></dd>
+
+<dt>undefined</dt>
+<dd><p>
+The programmer states that overflow is sufficiently
+rare so that overflow is not a concern.
+Aborting on overflow is a suitable implementation.
+So is ignoring the issue and letting the program
+stray into undefined behavior.
+</p></dd>
+
+<dt>abort</dt>
+<dd><p>
+Abort the program on overflow.
+Detection is required.
+</p></dd>
+
+<dt>quick_exit</dt>
+<dd><p>
+Call <code>quick_exit</code> on overflow.
+Detection is required.
+</p></dd>
+
+<dt>exception</dt>
+<dd><p>
+Throw an exception on overflow.
+Detection is required.
+</p></dd>
+
+</dl>
+</blockquote>
+
+<p>
+A special substitution mode is as follows.
+Detection is required.
+</p>
+
+<blockquote>
+<dl>
+
+<dt>special</dt>
+<dd><p>
+Return one of possibly several special values indicating overflow.
+</p></dd>
+
+</dl>
+</blockquote>
+
+<p>
+Some normal substitution modes are as follows.
+Detection is required.
+</p>
+
+<blockquote>
+<dl>
+
+<dt>saturate</dt>
+<dd><p>
+Return the nearest value within the valid range.
+</p></dd>
+
+<dt>modulo with shifted scale</dt>
+<dd><p>
+For unsigned arguments and range from 0 to <var>z</var>,
+the result is simply <var>x</var>&nbsp;mod&nbsp;(<var>z</var>+1).
+Shifting the range such that
+0&nbsp;&lt;&nbsp;<var>y</var>&nbsp;&#8804;&nbsp;<var>z</var>
+requires a more complicated expression,
+<var>y</var>&nbsp;+&nbsp;((<var>x</var>–<var>y</var>) mod (<var>z</var>–<var>y</var>+1)).
+We can also use this expression when
+<var>y</var>&nbsp;&lt;&nbsp;0.
+That is, it is a general purpose definition.
+However, it may not yield results consistent with division.
+</p></dd>
+
+</dl>
+</blockquote>
+
+<p>
+Various overflow modes are in current use.
+</p>
+
+<table>
+<tbody><tr><th>mode</th>
+    <th>uses</th></tr>
+<tr><td>impossible</td>
+    <td>well-analyzed programs</td></tr>
+<tr><td>undefined</td>
+    <td>C/C++ signed integers<br>
+    C (TR 18037) unsaturated fixed-point types<br>
+    most programs</td></tr>
+<tr><td>abort</td>
+    <td>several run-time checking systems</td></tr>
+<tr><td>exception</td>
+    <td>Ada integers<br>
+    C# integers in checked context</td></tr>
+<tr><td>special</td>
+    <td>IEEE floating-point</td></tr>
+<tr><td>saturate</td>
+    <td>C (TR 18037) unsaturated fixed-point types<br>
+    digital signal processing hardware</td></tr>
+<tr><td>modulo with shifted scale</td>
+    <td>two's-complement wrap-around<br>
+    C/C++ unsigned integers<br>
+    C# integers in unchecked context<br>
+    Java signed integers</td></tr>
+</tbody></table>
+
+<p>
+We represent the mode in C++ as an enumeration:
+Other modes are possible.
+</p>
+
+
+<h3><a name="OverFunctions">Functions</a></h3>
+
+<p>
+Many C++ conversions already reduce the range of a value,
+but they do not provide programmer control of that reduction.
+We can give programmers control.
+</p>
+
+<p>
+Being able to specify overflow from a range of values of the same type
+is also helpful.
+convenience functions
+can elide arguments for common ranges,
+such as [0,upper] and [-upper,upper].
+Two's-complement numbers are a slight variant on the above.
+</p>
+
+<p>
+For binary representations, we can also specify bits instead.
+While this specification may seem redundant,
+it enables faster implementations.
+</p>
+
+<p>
+Embedding overflow detection within regular operations
+can lead to enhanced performance.
+In particular, left shift is a important candidate operation
+within fixed-point arithmetic.
+</p>
+
+<p>
+As before, finer specification of the limits is reasonable.
+We can add other functions as needed.
+</p>
+
+
+<h2><a name="Both">Both Rounding and Overflow</a></h2>
+
+<p>
+Some operations may reasonably
+both require rounding and require overflow detection.
+</p>
+
+<p>
+First and foremost,
+conversion from floating-point to integer
+may require handling a floating-point value
+that has both a finer resolution
+and a larger range
+than the integer can handle.
+The problem generalizes to arbitrary numeric types.
+</p>
+
+<p>
+Consider shifting as multiplication by a power of two.
+It has an analogy in a <em>bidirectional</em> shift,
+where a positive power is a left shift and a negative power is a right shift.
+</p>
+
+
+<h2><a name="Conversion">General Conversion</a></h2>
+
+<p>
+Conversion between arbitrary numeric types
+requires something more practical than
+implementing the full cross product of conversion possibilities.
+</p>
+
+<p>
+To that end,
+we propose that each numeric type
+<em>promotes</em> to an unbound type
+in it same general category.
+For example, integers of fixed size
+would promote to an unbound integer.
+In this promotion, there can be no possibility of overflow or rounding.
+Each type also <em>demotes</em> from that type.
+The demotion may have both round and overflow.
+</p>
+
+<p>
+The general template conversion algorithm
+from type <var>S</var> to type <var>T</var> is to:
+</p>
+<ul>
+<li><p>
+Promote <var>S</var> to its unbound type <var>S'</var>.
+</p></li>
+<li><p>
+Convert <var>S'</var> to unbound type <var>T'</var> of <var>T</var>.
+</p></li>
+<li><p>
+Demote <var>T'</var> to <var>T</var>.
+</p></li>
+</ul>
+
+<p>
+We expect common conversions to have specialized implementations.
+</p>
+
+
+<h2><a name="Wording">Wording</a></h2>
+
+
+<h3><a name="numbers.round">?.?.1 Rounding [numbers.round]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+The base requirements on a <var>round</var> function are:
+</p><ul>
+<li>
+<p>
+Given a value <var>x</var>
+and two adjacent representable values <var>y</var>&nbsp;&lt;&nbsp;<var>z</var>
+such that <var>y</var>&nbsp;&#8804;&nbsp;<var>x</var>&nbsp;&#8804;&nbsp;<var>z</var>
+then
+</p>
+<ul>
+<li><p>if <var>x</var>&nbsp;=&nbsp;<var>y</var>
+then <var>round</var>(<var>x</var>)&nbsp;=&nbsp;<var>y</var>,</p></li>
+<li><p>if <var>x</var>&nbsp;=&nbsp;<var>z</var>
+then <var>round</var>(<var>x</var>)&nbsp;=&nbsp;<var>z</var>,</p></li>
+<li><p>and otherwise <var>round</var>(<var>x</var>)&nbsp;=&nbsp;<var>y</var>
+or <var>round</var>(<var>x</var>)&nbsp;=&nbsp;<var>z</var>.</p></li>
+</ul>
+</li>
+<li>
+<p>
+Given an additional value <var>w</var>
+such that <var>y</var>&nbsp;&#8804;&nbsp;<var>w</var>&nbsp;&#8804;&nbsp;<var>x</var>&nbsp;&#8804;&nbsp;<var>z</var>
+then
+</p>
+<ul>
+<li><p>
+<var>y</var>&nbsp;&#8804;&nbsp;<var>round</var>(<var>w</var>)&nbsp;&#8804;&nbsp;<var>round</var>(<var>x</var>)&nbsp;&#8804;&nbsp;<var>z</var>
+</p></li>
+</ul>
+</li></ul>
+
+<pre><code>enum class rounding {
+  all_to_neg_inf, all_to_pos_inf,
+  all_to_zero, all_away_zero,
+  all_to_even, all_to_odd,
+  all_fastest, all_smallest,
+  all_unspecified,
+  tie_to_neg_inf, tie_to_pos_inf,
+  tie_to_zero, tie_away_zero,
+  tie_to_even, tie_to_odd,
+  tie_fastest, tie_smallest,
+  tie_unspecified
+};</code>
+</pre>
+
+<p>
+The enum class <code>rounding</code>
+identifies the rounding mode
+with the semantics below.
+</p>
+
+<ul>
+
+<li><p>
+The <code>all_</code>... modes
+round all values in the given direction.
+</p></li>
+
+<li><p>
+The <code>tie_</code>... modes
+round the mid-point value in the given direction
+and round all other values to their nearest representable value.
+</p></li>
+
+<li><p>
+The ...<code>_fastest</code> modes have the lowest run-time cost.
+</p></li>
+
+<li><p>
+The ...<code>_smallest</code> modes have the smallest code size.
+</p></li>
+
+<li><p>
+The ...<code>_unspecified</code> means any rounding algorithm
+meeting the base requirements.
+</p></li>
+
+</ul>
+
+<p>
+The modes
+<code>all_away_zero</code>,
+<code>all_to_even</code>,
+<code>all_to_odd</code>,
+<code>tie_to_neg_inf</code>, and
+<code>tie_to_zero</code>
+are conditionally supported.
+</p>
+
+<p>
+The function <var>T&nbsp;round</var>(<var>mode</var>,<var>U</var> value)
+is a definitional aid and is not directly part of the standard.
+It has the following properties.
+</p>
+<ul>
+<li><p>
+The argument expression for <var>value</var>
+is evaluated as a real number (not a floating-point number).
+[<i>Note:</i>
+Obviously, the implementation will use a different strategy,
+but it must yield the same result.
+—<i>end note</i>]
+</p></li>
+<li><p>
+The <var>value</var>
+is rounded to the representation of <var>T</var>
+using the given rounding <var>mode</var>.
+</p></li>
+</ul>
+
+<p>
+<code>template &lt;typename T, typename U&gt;
+T convert(rounding mode, U value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>round</var><code>(mode,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;rounding mode, typename T, typename U&gt;
+T convert(U value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>round&lt;T&gt;(mode,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T divide(rounding mode, T dividend, T divisor)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>round</var><code>(mode,&nbsp;dividend</code>/<code>divisor)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;rounding mode, typename T&gt;
+T divide(T dividend, T divisor)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>divide(mode,&nbsp;dividend,&nbsp;divisor)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T scale_down(rounding mode, T value, int bits)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>round</var><code>(mode,&nbsp;dividend</code>/2<sup><code>bits</code></sup><code>)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;rounding mode, typename T&gt;
+T scale_down(T value, int bits)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>scale_down(mode,&nbsp;dividend,&nbsp;bits)</code>.
+</p></dd>
+
+</dl>
+
+</blockquote>
+
+
+<h3><a name="numbers.overflow">?.?.2 Overflow [numbers.overflow]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+The base requirements on an <var>overflow</var> function are:
+</p>
+<ul>
+<li>
+<p>
+Given a value <var>x</var> and a representable range
+<var>y</var>&nbsp;&#8804;&nbsp;<var>z</var>
+such that <var>y</var>&nbsp;&#8804;&nbsp;<var>x</var>&nbsp;&#8804;&nbsp;<var>z</var>
+then an overflow does not occur and
+</p><ul>
+<li><p>
+<var>overflow</var>(<var>x</var>)&nbsp;=&nbsp;<var>x</var>.
+</p></li>
+</ul>
+</li>
+<li>
+<p>
+Otherwise, an overflow has occured and
+the function may, for all overflow values, choose either:
+</p>
+<ul>
+<li><p>
+Consider the expression an error,
+handling it or not as appropriate.
+</p></li>
+<li><p>
+Return a normal value
+<var>w</var>&nbsp;=&nbsp;<var>overflow</var>(<var>x</var>)
+such that
+<var>y</var>&nbsp;&#8804;&nbsp;<var>w</var>&nbsp;&#8804;&nbsp;<var>z</var>.
+</p></li>
+<li><p>
+Return a special value indicating overflow, e.g. IEEE infinities.
+This choice implies defining the result of operations
+given this special value as an argument.
+</p></li>
+</ul>
+</li>
+</ul>
+
+<pre><code>enum class overflow {
+  impossible, undefined, abort, quick_exit, exception,
+  special,
+  saturate, modulo_shifted
+};</code>
+</pre>
+
+<p>
+The enum class <code>overflow</code>
+identifies the overflow mode
+with the semantics below.
+</p>
+
+<dl>
+
+<dt><code>impossible</code></dt>
+<dd><p>
+The programmer asserts that overflow is not possible.
+</p></dd>
+
+<dt><code>undefined</code></dt>
+<dd><p>
+The function behavior is undefined if overflow occurs.
+</p></dd>
+
+<dt><code>abort</code></dt>
+<dd><p>
+The function calls <code>std::abort</code> on overflow.
+</p></dd>
+
+<dt><code>quick_exit</code></dt>
+<dd><p>
+The function calls <code>std::quick_exit</code> on overflow.
+</p></dd>
+
+<dt><code>exception</code></dt>
+<dd><p>
+The function throws <code>std::overflow_error</code> on overflow.
+</p></dd>
+
+<dt><code>exception</code></dt>
+<dd><p>
+The function returns a type-specific special value.
+</p></dd>
+
+<dt><code>saturate</code></dt>
+<dd><p>
+The function returns the nearest representable value to the true value.
+</p></dd>
+
+<dt><code>modulo_shifted</code></dt>
+<dd><p>
+The function returns
+<var>low</var>&nbsp;+&nbsp;
+((<var>value</var>&#8722;<var>low</var>)
+mod (<var>high</var>&#8722;<var>low</var>+1))
+where <var>low</var> is the lowest representable value,
+<var>high</var> is the highest representable value, and
+<var>value</var> is the value tested.
+</p></dd>
+
+</dl>
+
+<p>
+The function
+<var>T&nbsp;overflow</var>(<var>mode</var>,<var>T&nbsp;lower</var>,<var>T&nbsp;upper</var>,<var>U&nbsp;value</var>)
+is a definitional aid and is not directly part of the standard.
+It has the following properties.
+</p>
+<ul>
+<li><p>
+The argument expression for <var>value</var>
+is evaluated as a real number (not a floating-point number).
+[<i>Note:</i>
+Obviously, the implementation will use a different strategy,
+but it must yield the same result.
+—<i>end note</i>]
+</p></li>
+<li><p>
+Returns <var>value</var> when 
+<var>U</var> is within the range [<var>lower</var>,<var>upper</var>].
+</p></li>
+<li><p>
+Applies the action specified in <var>mode</var> when 
+<var>value</var> is not within the range [<var>lower</var>,<var>upper</var>].
+</p></li>
+</ul>
+
+<p>
+<code>template &lt;typename T, typename U&gt;
+T convert(overflow mode, U value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>overflow</var><code>(mode,
+numeric_limits&lt;T&gt;::min,
+numeric_limits&lt;T&gt;::max,
+value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T, typename U&gt;
+T convert(U value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>convert(mode,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit(overflow mode, T lower, T upper, T value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>overflow</var><code>(mode,
+lower,
+upper,
+value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit(T lower, T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit(mode,&nbsp;lower,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit_nonnegative(overflow mode, T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit(mode,&nbsp;0,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit_nonnegative(T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit_nonnegative(mode,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit_signed(overflow mode, T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit(mode,&nbsp;-upper,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit_signed(T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit_signed(mode,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit_twoscomp(overflow mode, T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit(mode,&nbsp;-upper-1,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit_twoscomp(T upper, T value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit_twoscomp(mode,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit_nonnegative_bits(overflow mode, T upper, T value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The result is
+<var>overflow</var><code>(mode,
+0,
+</code>2<sup><code>upper</code></sup><code>-1,
+value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit_nonnegative_bits(T upper, T value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>limit_nonnegative_bits(mode, upper, value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit_signed_bits(overflow mode, T upper, T value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>overflow</var><code>(mode,
+-(</code>2<sup><code>upper</code></sup><code>-1),
+</code>2<sup><code>upper</code></sup><code>-1,
+value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit_signed_bits(T upper, T value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The result is
+<code>limit_signed_bits(mode,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T limit_twoscomp_bits(overflow mode, T upper, T value)</code>
+
+</p><dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>overflow</var><code>(mode,
+-</code>2<sup><code>upper</code></sup><code>,
+</code>2<sup><code>upper</code></sup><code>-1,
+value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T limit_twoscomp_bits(T upper, T value)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The result is
+<code>limit_twoscomp_bits(mode,&nbsp;upper,&nbsp;value)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T scale_up(overflow mode, T value, int count)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+The result is
+<var>overflow</var><code>(mode,
+numeric_limits&lt;T&gt;::min,
+numeric_limits&lt;T&gt;::max,
+value</code>×2<sup><code>count</code></sup><code>)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow mode, typename T&gt;
+T scale_up(T value, int count)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>scale_up(mode,&nbsp;value,&nbsp;count)</code>.
+</p></dd>
+</dl>
+
+</blockquote>
+
+
+
+<h3><a name="numbers.roundover">?.?.3 Both Rounding and Overflow [numbers.roundover]</a></h3>
+
+<p>
+Add a new section:
+</p>
+
+<blockquote class="stdins">
+
+<p>
+<code>template &lt;typename T, typename U&gt;
+T convert(overflow omode, rounding rmode, U value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<var>overflow</var><code>(omode,
+numeric_limits&lt;T&gt;::min,
+numeric_limits&lt;T&gt;::max,</code>
+<var>round</var><code>(rmode,value))</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow omode, rounding rmode, typename T, typename U&gt;
+T convert(U value)</code></p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>convert(omode,&nbsp;rmode;&nbsp;value)</code>.
+</p></dd>
+</dl>
+
+<p>
+<code>template &lt;typename T&gt;
+T scale(overflow omode, rounding rmode, T value, int count)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>count</code>&nbsp;&lt;&nbsp;0<br>
+?&nbsp;<var>round</var><code>(rmode,value</code>×2<sup><code>count</code></sup><code>)</code><br>
+:&nbsp;<var>overflow</var><code>(omode,
+numeric_limits&lt;T&gt;::min,
+numeric_limits&lt;T&gt;::max,
+value</code>×2<sup><code>count</code></sup><code>)</code>.
+</p></dd>
+
+</dl>
+
+<p>
+<code>template &lt;overflow omode, rounding rmode, typename T&gt;
+T scale(T value, int count)</code>
+</p>
+
+<dl class="attribute">
+
+<dt>Returns:</dt>
+<dd><p>
+<code>scale(omode,&nbsp;rmode&nbsp;value&nbsp;count)</code>.
+</p></dd>
+</dl>
+
+</blockquote>
+
+
+<h2><a name="Revisions">Revisions</a></h2>
+
+<p>
+This 
+This paper revises
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0105r0.html">
+P0105R0</a> - 2015-09-27.
+</p>
+<ul>
+<li>Add Wording section.</li>
+<li>Move definitions to the Wording section.</li>
+<li>Add rounding <code>tie_to_pos_inf</code>
+as a motivated rounding mode for astronomy and navigation.</li>
+<li>Tighten up the mode definitions.</li>
+<li>General editing.</li>
+</ul>
+
+<p>
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/p0105r0.html">
+P0105R0</a> revised
+<a href="http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/n4448.html">
+N4448</a> - 2015-04-12.
+</p>
+<ul>
+<li>Add contents entries.</li>
+<li>Add revisions section.</li>
+<li>Rename
+<code>bshift</code> to <code>scale</code>,
+<code>lshift</code> to <code>scale_up</code> and
+<code>rshift</code> to <code>scale_down</code>.</li>
+<li>Rename <code>positive</code> to <code>nonnegative</code> in function names.
+</li><li>Make unmotivated rounding modes conditionally supported.</li>
+<li>Remove unmotivated modular overflow modes.</li>
+<li>Provide two sets of functions,
+one with modes as function parameters
+and one with modes as template parameters.</li>
+<li>Remove section Template Parameter versus Function Parameter.</li>
+<li>Add a General Conversion section with algorithm.</li>
+</ul>
+
+
+
+</body></html>

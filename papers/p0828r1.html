@@ -1,0 +1,447 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml"><head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta http-equiv="Content-Style-Type" content="text/css">
+  <meta name="generator" content="pandoc">
+  <title></title>
+  <style type="text/css">code{white-space: pre;}</style>
+  <!--adapted from https://github.com/Thiht/markdown-viewer/blob/master/chrome/lib/sss/sss.css-->
+  <style type="text/css">
+  body {
+      color: #333;
+      font-family: 'Segoe UI', 'Lucida Grande', Helvetica, sans-serif;
+      line-height: 1.5;
+      margin: auto;
+      max-width: 1000px;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+      font-weight: normal;
+      line-height: 1em;
+      margin: 20px 0;
+  }
+  
+  h1 {
+      font-size: 2.25em;
+  }
+  
+  h2 {
+      font-size: 1.75em;
+  }
+  
+  h3 {
+      font-size: 1.5em;
+  }
+  
+  h4, h5, h6 {
+      font-size: 1.25em;
+  }
+  
+  a {
+      color: #08C;
+      text-decoration: none;
+  }
+  
+  a:hover, a:focus {
+      text-decoration: underline;
+  }
+  
+  a:visited {
+      color: #058;
+  }
+  
+  img {
+      max-width: 100%;
+  }
+  
+  li + li {
+      margin-top: 3px;
+  }
+  
+  dt {
+      font-weight: bold;
+  }
+  
+  code {
+      background: #EEE;
+      font-family: "Consolas", "Lucida Console", monospace;
+      padding: 1px 5px;
+  }
+  
+  pre {
+      background: #EEE;
+      padding: 5px 10px;
+      white-space: pre-wrap;
+  }
+  
+  pre code {
+      padding: 0;
+  }
+  
+  blockquote {
+      border-left: 5px solid #EEE;
+      margin: 0;
+      padding: 0 10px;
+  }
+  
+  table {
+      border-collapse: collapse;
+      width: 100%;
+  }
+  
+  table + table {
+      margin-top: 1em;
+  }
+  
+  thead {
+      background: #EEE;
+      text-align: left;
+  }
+  
+  th, td {
+      border: 1px solid #EEE;
+      padding: 5px 10px;
+  }
+  
+  hr {
+      background: #EEE;
+      border: 0;
+      height: 1px;
+  }
+  </style>
+</head>
+<body>
+<p>Document Number: P0828R1<br>
+Date: 2018-06-25<br>
+Reply-to: <a href="mailto:p0828@john.mcfarlane.name">John McFarlane</a><br>
+Audience: SG6, SG12, SG14</p>
+<h1>Elastic Integers</h1>
+<h2>1. Introduction</h2>
+<p>This paper proposes a numeric type, <code>elastic_integer</code>, 
+which returns widened results from common arithmetic operations in order
+ to prevent out-of-range errors. It is highly composable and can be 
+combined with other types such as overflow-trapping and fixed-point 
+numeric types to provide arithmetic with all of the efficiency of 
+integers and some of the benefit traditionally enjoyed by dynamic types 
+such as bignum and floating-point.</p>
+<h2>2. Motivation and Scope</h2>
+<h3>2.1 Out-of-Range Integer Arithmetic</h3>
+<p>Fundamental integer types are usually successful in representing 
+quantities. When they are unsuccessful, it is often due to operations 
+producing results with out-of-range values.</p>
+<pre><code>auto positive_unsigned_overflow = UINT_MAX + 1;  // 0U
+auto positive_signed_overflow = INT_MAX + 1; // undefined behavior
+auto negative_unsigned_overflow = 0U &gt; -1;   // false
+</code></pre>
+<h3>2.2 Preventing Errors</h3>
+<p>It is difficult and costly to detect and correct such errors. As always, prevention is better than cure:</p>
+<pre><code>auto positive_unsigned_ok = static_cast&lt;unsigned long long&gt;(UINT_MAX) + 1;
+auto positive_signed_ok = static_cast&lt;long long&gt;(INT_MAX) + 1;
+auto negative_unsigned_ok = static_cast&lt;long long&gt;(0U) &gt; -1;
+</code></pre>
+<p>This solution places the responsibility for managing range firmly 
+with the user, a task which is made especially onerous for two reasons.</p>
+<p>Firstly, the solution is not generic: in a setting where the integer 
+type is a template parameter, the user cannot easily call upon the next 
+widest integer by type.</p>
+<p>Secondly, difference in the width of integers on different 
+architectures means calling upon the next widest integer type is not 
+even foolproof in non-generic code. Indeed, the above casts may not 
+increase range on platforms where <code>sizeof(long long) == sizeof(int)</code>. (<a href="http://en.cppreference.com/w/cpp/types/integer">Fixed-width integer types</a> do not completely solve this problem as they are aliases to types which may be wider than advertised.)</p>
+<h3>2.3 Portable and Generic</h3>
+<p>Portable, generic code for avoiding integer overflow requires 
+facilities to manipulate two properties of integers directly affecting 
+range: signedness and number of digits. <code>is_signed</code>, <code>make_signed</code> and <code>make_unsigned</code>
+ supported the manipulation of signedness for fundamental integers types
+ only. The manipulation of the number of digits is even less well 
+supported.</p>
+<p><a href="https://wg21.link/p0102r0">P0102</a> and <a href="https://wg21.link/p0675r0">P0675</a>
+ both propose facilities for requesting an integer by its width or its 
+number of digits, respectively. P0102 is limited to fundamental 
+arithmetic types whereas P0675 caters for user-defined types.</p>
+<p>P0675's <code>num_digits_v</code> and <code>set_num_digits_t</code> components make it possible to widen correctly for arithmetic operations:</p>
+<pre><code>template&lt;typename Operand&gt;
+auto multiply(Operand a, Operand b) {
+    // Get the number of digits in the input type.
+    constexpr auto operand_digits = num_digits_v&lt;Operand&gt;;
+    
+    // Results of multiplication contain twice the number of digits. 
+    constexpr auto result_digits = operand_digits * 2;
+    
+    // Use this to determine the result type.
+    using result_type = set_num_digits_t&lt;Operand, result_digits&gt;;
+    
+    // Promoted operands before operation.
+    return static_cast&lt;result_type&gt;(a) * static_cast&lt;result_type&gt;(b);
+}
+</code></pre>
+<p>Two limitations with this approach are:</p>
+<ol>
+<li>It requires the use of a named function instead of arithmetic operators.</li>
+<li>For operations such as addition and comparison, only a single extra 
+bit is required in the form of a digit or the sign bit. But fundamental 
+arithmetic types generally only come in widths that are powers of two. 
+So widening by a single bit entails widening by a factor of two.</li>
+</ol>
+<h3>2.4 Usability</h3>
+<p>Both of the above problems can be solved with a numeric type, <code>elastic_integer</code> (<a href="https://github.com/johnmcfarlane/cnl/blob/8e0d43d6ec08312b7f248eefa104fc3d79cbe596/include/cnl/elastic_integer.h">reference implementation</a>, <a href="https://godbolt.org/g/oxU1Gz">live demo</a>) that parametrizes signedness and number of digits:</p>
+<pre><code>template&lt;int Digits, class Narrowest = int&gt;
+class elastic_integer;
+</code></pre>
+<p>Where:</p>
+<ul>
+<li><code>Digits</code> specifies the number of binary digits used to express magnitude (excluding sign bit). It corresponds directly to the <code>num_digits_v</code> variable template and <code>set_num_digits_t</code> class template from <a href="https://wg21.link/p0675r0">P0675</a>. <code>Digits</code> must be a positive value.</li>
+<li><code>Narrowest</code> specifies the narrowest type used to store the value. If <code>Digits</code> exceeds the capacity of <code>Narrowest</code>, a wider type is substituted to ensure that the value can be represented.</li>
+</ul>
+<p>For two's complement signed types, the most negative number is not in
+ the range allowed by the type. This avoids certain edge cases, e.g. 
+where <code>-INT_MIN</code> exceeds <code>INT_MAX</code>, thus requiring an entire extra digit.</p>
+<p><code>elastic_integer</code> automates the work of tracking range. Thus, the user is less likely to experience out-of-range errors:</p>
+<pre><code>auto d(elastic_integer&lt;15&gt; x, elastic_integer&lt;15&gt; y)  // [-32767..32767]
+{
+  // When two values are multiplied, result is the sum of the `Digits` parameters. 
+  auto xx = x*x, yy = y*y;  // elastic_integer&lt;30&gt;
+
+  // When two values are summed, result is the `Digits` parameter plus one. 
+  auto dd = xx + yy;    // elastic_integer&lt;31&gt;
+  
+  // A square root operation almost halves the number of digits required
+  auto d = square_root(dd); // elastic_integer&lt;31&gt; in range [0..46339]
+  
+  // so we know it's safe to cast to a narrower type.
+  return elastic_integer&lt;16, unsigned&gt;(d); 
+}
+</code></pre>
+<h3>2.5 Initialization</h3>
+<p><code>elastic_integer</code> can be initialized from any integer type which employs the customization points laid out in <a href="https://wg21.link/p0675r0">P0675</a>. For example:</p>
+<pre><code>auto a = elastic_integer(123);  // commonly deduced as elastic_integer&lt;31&gt;
+auto b = elastic_integer(UINT64_C(4096));  // commonly deduced as elastic_integer&lt;64, unsigned&gt;
+</code></pre>
+<p>With general-purpose constant value type such as those proposed in <a href="https://wg21.link/p0377r0">P0377</a> and <a href="https://wg21.link/P0827R0">P0827</a> an optimized <code>Digits</code> parameter can be determined:</p>
+<pre><code>auto a = elastic_integer(constant&lt;123&gt;());  // deduced as elastic_integer&lt;7&gt;
+auto b = elastic_integer(constant&lt;4096&gt;());  // deduced as elastic_integer&lt;13&gt;
+</code></pre>
+<p>The addition of a user-defined literal for generating constant value types further improves terseness:</p>
+<pre><code>auto a = elastic_integer(123static);  // deduced as elastic_integer&lt;7&gt;
+auto b = elastic_integer(4096static);  // deduced as elastic_integer&lt;13&gt;
+</code></pre>
+<h2>3 Impact On the Standard</h2>
+<p>This proposal adds header, <code>&lt;elastic_integer&gt;</code>, containing class template, <code>elastic_integer</code>
+ and a collection of operator overload function templates which only 
+participate in overload resolution when either of the operands is of 
+type, <code>elastic_integer</code>.</p>
+<p>The usefulness of <code>elastic_integer</code> is greatly enhanced with a number of additions. In particular, <a href="https://wg21.link/p0675r0">P0675</a> allows <code>elastic_integer</code> to be composed with other types and <a href="https://wg21.link/p0827r0">P0827</a> adds a number of facilities to <code>elastic_integer</code> which make it more efficient and usable.</p>
+<h2>4. Design Decisions</h2>
+<p>The design of <code>elastic_integer</code> arises from observations of the <code>fixed_point</code> type from <a href="https://wg21.link/p0037r4">P0037</a> when compared with the fixed-point types proposed by Lawrence Crowl in <a href="https://wg21.link/p0106r0">P0106</a>.
+ P0106's fixed-point types -- not only approximate real numbers using 
+integer arithmetic but also -- address a variety of concerns related to 
+accuracy and safety such as rounding and out-of-range errors. In 
+response to these observations, <a href="https://wg21.link/p0554r0">P0554</a>
+ argues for an alternative approach in which individual concerns are 
+addressed by individual numeric components and those components are used
+ to compose a composite type which solves the full list problems 
+identified in P0106.</p>
+<p>One such problem addressed in <a href="https://wg21.link/p0106r0">P0106</a> is that of preventing out-of-range conditions. The solution there is the same <em>elasticity</em> property adopted by <code>elastic_integer</code>. The difference is that <code>elastic_integer</code> does nothing else but solve this single problem.</p>
+<h3>4.1 Composability</h3>
+<h4>4.1.1 Composite Type with Run-Time Overflow Checks</h4>
+<p><code>elastic_integer</code> offers little protection against 
+out-of-range errors caused by narrowing or compound operations that 
+increases the magnitude of the value:</p>
+<pre><code>elastic_integer&lt;10&gt; a = 1023;   // within range; OK 
+auto b = elastic_integer&lt;9&gt;(a); // narrowing cast exceeds range; undefined behavior
+++ a;   // increment exceeds range; undefined behavior
+a = -1024;  // narrowing assignment exceeds range; undefined behavior
+</code></pre>
+<p>Such errors cannot be prevented using the type system alone. Either 
+the user has to take care to avoid these errors or run-time checks must 
+be performed. Fortunately, this can be remedied by combining <code>elastic_integer</code> with a so-called 'safe' integer type, e.g.:</p>
+<pre><code>// a numeric component that traps out-of-range errors
+template&lt;class T&gt;
+overflow_integer;
+
+overflow_integer&lt;elastic_integer&lt;10&gt;&gt; a = 1024; // trap!
+auto aa = a*a;    // no need for run-time check: num_digits_v&lt;decltype(a*a)&gt; is wide enough to hold the result
+</code></pre>
+<p>(This composite type is said to have a numeric component nesting 
+depth of 2 because one numeric component is nested within another. <code>elastic_integer&lt;10, int&gt;</code> has a nesting depth of 1 and <code>int</code> has a nesting depth of 0.)</p>
+<h4>4.1.2 Composite Type with Real Number Approximation</h4>
+<p><a href="https://wg21.link/p0037r4">P0037</a> introduces a fixed-point type which uses integers to approximate real numbers:</p>
+<pre><code>template&lt;class Rep, int Exponent&gt;
+class fixed_point;
+</code></pre>
+<p>Fixed-point arithmetic increases the opportunity for out-of-range errors. In the following example on a system where <code>int</code> is 32 bits, a 31-digit integer is expected to store a 53-bit value, resulting in UB.</p>
+<pre><code>auto kibi = fixed_point&lt;int32_t, -16&gt;(1024); // 2^26
+auto mebi = kibi * kibi;   // fixed_point&lt;int, -32&gt;; value: 2^52
+</code></pre>
+<p>The problem here is with the backing type used to represent the 
+fixed-point value -- not the fixed-point arithmetic per se. But the fact
+ that fixed-point types often use more of their allotted capacity 
+exacerbates the issue. So replacing <code>int</code> with <code>elastic_integer</code> produces a composite type that prevents the error:</p>
+<pre><code>template&lt;int Digits, int Exponent&gt;
+using elastic_fixed_point = fixed_point&lt;elastic_integer&lt;Digits&gt;, Exponent&gt;;
+
+auto kibi = elastic_fixed_point&lt;31, -16&gt;(1024); // stores value 2^26
+auto mebi = kibi * kibi;   // elastic_fixed_point&lt;62, -32&gt; stores value: 2^52
+</code></pre>
+<p>The benefits of the composite, <code>elastic_fixed_point</code> is significant. Not only does it eliminate the risk of both overflow <em>and</em>
+ underflow, but it does it with the minimum of integer arithmetic. A 
+modern optimizing compiler reduces the above multiplication to <a href="https://godbolt.org/g/cTaup3">a single integer operation</a>:</p>
+<pre><code>auto kibi = 1024*65536;
+auto mebi = int64_t{kibi}*kibi;
+</code></pre>
+<h4>4.1.3 Composing for Compactness</h4>
+<p>The default type for representing integer quantities is <code>int</code>. It is the default for <code>Narrowest</code> for the same reasons. This means that even a one-digit type (<code>elastic_integer&lt;1&gt;</code>), is as wide as <code>int</code>. When storage matters more than performance, <code>int</code> is the wrong choice. For example:</p>
+<pre><code>struct date {
+  elastic_integer&lt;15, int8_t&gt; year;   // [-32767..32767]
+  elastic_integer&lt;4, uint8_t&gt; month;  // [0..15]
+  elastic_integer&lt;5, uint8_t&gt; day;    // [0..31]
+};
+
+constexpr auto epochalypse = date{2038, 1, 19};
+constexpr auto end_of_ice_age = date{-10000, 7, 19};
+</code></pre>
+<p>Typically, the sizes of the three member variables of <code>date</code> are 2, 1 and 1 bytes respectively and most users can assume that <code>sizeof(date)==4</code>.</p>
+<h3>4.2 Heterogeneous Operators</h3>
+<p>The usability of numeric component types in arithmetic expressions is
+ greatly affected by the set of types accepted by their operators. In 
+the case of <code>elastic_integer</code>, being able to perform operations between an <code>elastic_integer</code> type and a non-<code>elastic_integer</code> type is safe and convenient:</p>
+<pre><code>auto a = elastic_integer&lt;2&gt;(2) + 2;  // equivalent to elastic_integer&lt;2&gt;(2) + elastic_integer(2)
+</code></pre>
+<p>A summary of the rules for binary operators taking a single <code>elastic_integer</code> operand are as follows:</p>
+<ol>
+<li>If the non-<code>elastic_integer</code> operand is a static numeric component (e.g. <code>int</code> or <code>overflow_integer&lt;int&gt;</code>):
+<ol>
+<li>If the left-hand operand is less deeply nested than the right-hand 
+operand, then the left-hand operand is converted to an equivalent type 
+of the same class template as the right-hand operand and the operation 
+is performed on the converted operand and the right-hand operand.</li>
+<li>If the left-hand operand is more deeply nested than the right-hand 
+operand, then the right-hand operand is converted to an equivalent type 
+of the same class template as the left-hand operand and the operation is
+ performed on the left-hand operand and the converted operand.</li>
+<li>If both operands are equally deeply nested, no operator matches and a compiler error is emitted.</li>
+</ol></li>
+<li>If the non-<code>elastic_integer</code> operand is a dynamic numeric component (e.g. floating-point or bignum), the <code>elastic_integer</code> operand is converted to the dynamic numeric component and operation is performed on the two dynamic numeric components.</li>
+</ol>
+<p>These rules should be applicable to all numeric components. However, 
+the rules for when both operands are the same numeric component are 
+specific to that component. In the case of <code>elastic_integer</code> the rules vary depending on the operator.</p>
+<h3>4.3 Open Issues</h3>
+<h4>4.3.1 Zero Digits</h4>
+<p>It is uncertain whether allowing <code>elastic_integer&lt;0&gt;</code> is wise or even possible.</p>
+<p>For types instantiated from unsigned fundamental integers, e.g. <code>elastic_integer&lt;0, unsigned&gt;</code>,
+ only the value zero is possible. Whether such a type would require any 
+storage at all is unclear. If not, it would be a special case because 
+storage is normally rounded up to the width of the <code>Narrowest</code> parameter. <code>elastic_integer&lt;0, void&gt;</code>
+ might be a way to express a zero-sized type. If a zero-sized integer 
+becomes standardized, a zero-digit elastic type would suddenly make a 
+lot more sense and zero storage would be expected.</p>
+<p>For types instantiated from signed fundamental integers, there is the
+ added question of the sign bit. It might be expected but would 
+certainly be of little use. Even on two's complement systems where a 
+zero-digit signed integer has the range [0..-1], the rule forbidding the
+ most negative number would reduce the range to zero.</p>
+<h4>4.3.2 Bikeshedding</h4>
+<p>It is not at all clear that elasticity is an appropriate metaphor for this auto-widening behavior.</p>
+<h2>5 Technical Specification</h2>
+<h3>5.1 Header <code>&lt;elastic_integer&gt;</code> synopsis</h3>
+<pre><code>namespace std {
+  // class template elastic_integer
+  template&lt;int Digits = num_digits_v&lt;int&gt;, class Narrowest = int&gt; class elastic_integer;
+  
+  // unary operators
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr elastic_integer&lt;Digits, Narrowest&gt;
+      operator+(const elastic_integer&lt;Digits, Narrowest&gt;&amp;);
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr elastic_integer&lt;Digits, std::make_signed_t&lt;Narrowest&gt;&gt;
+      operator-(const elastic_integer&lt;Digits, Narrowest&gt;&amp;);
+  
+  // binary operators (see 4.1 for return types)
+  template&lt;int Digits1, class Narrowest1, int Digits2, class Narrowest2&gt;
+    constexpr auto
+      operator@(const elastic_integer&lt;Digits1, Narrowest1&gt;&amp;, const elastic_integer&lt;Digits2, Narrowest2&gt;&amp;);
+  template&lt;int Digits, class Narrowest, class T&gt;
+    constexpr auto
+      operator@(const elastic_integer&lt;Digits, Narrowest&gt;&amp;, const T&amp;);
+  template&lt;class T, int Digits, class Narrowest&gt;
+    constexpr auto
+      operator@(const T&amp;, const elastic_integer&lt;Digits, Narrowest&gt;&amp;);
+
+  // pre/post increment/decrement
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr elastic_integer&lt;Digits, Narrowest&gt;&amp;
+      operator++(elastic_integer&lt;Digits, Narrowest&gt;&amp;);
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr elastic_integer&lt;Digits, Narrowest&gt;
+      operator++(elastic_integer&lt;Digits, Narrowest&gt;&amp;, int);
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr elastic_integer&lt;Digits, Narrowest&gt;&amp;
+      operator--(elastic_integer&lt;Digits, Narrowest&gt;&amp;);
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr elastic_integer&lt;Digits, Narrowest&gt;
+      operator--(elastic_integer&lt;Digits, Narrowest&gt;&amp;, int);
+  
+  // compound assignment operators
+  template&lt;int Digits, class Narrowest, class T&gt;
+    constexpr elastic_integer&lt;Digits, Narrowest&gt;&amp;
+      operator@=(elastic_integer&lt;Digits, Narrowest&gt;&amp;, const T&amp;);
+
+  // numeric traits (see P0554 for details)
+  template&lt;int Digits, class Narrowest&gt;
+    struct digits&lt;elastic_integer&lt;Digits, Narrowest&gt;&gt;;
+  template&lt;int Digits, class Narrowest, int MinNumBits&gt;
+    struct set_digits&lt;elastic_integer&lt;Digits, Narrowest&gt;, MinNumBits&gt;;
+  template&lt;int Digits, class Narrowest&gt;
+    constexpr typename elastic_integer&lt;Digits, Narrowest&gt;::rep
+      to_rep(const elastic_integer&lt;Digits, Narrowest&gt;&amp;);
+  template&lt;int Digits, class Narrowest, class Rep&gt;
+    struct from_rep&lt;elastic_integer&lt;Digits, Narrowest&gt;, Rep&gt;;
+  template&lt;int Digits, class Narrowest, class Value&gt;
+    struct from_value&lt;elastic_integer&lt;Digits, Narrowest&gt;, Value&gt;;
+  template&lt;int ShiftDigits, int ScalarDigits, class ScalarNarrowest&gt;
+    struct shift&lt;ShiftDigits, 2, elastic_integer&lt;ScalarDigits, ScalarNarrowest&gt;&gt;;
+}
+</code></pre>
+<h3>5.2 Class template <code>elastic_integer</code></h3>
+<pre><code>namespace std {
+  template&lt;int Digits, class Narrowest&gt; 
+  class elastic_integer {
+    public:
+      using rep = set_num_digits_t&lt;Narrowest, max(Digits, num_digits_v&lt;Narrowest&gt;)&gt;;
+    private:
+      rep rep_;  // exposition only
+    public:
+      elastic_integer() = default;
+      template&lt;class N&gt; constexpr elastic_integer(const N&amp;);
+      template&lt;class N&gt; elastic_integer&amp; operator=(N s);
+      template&lt;class N&gt; explicit constexpr operator N() const;
+  };
+}
+</code></pre>
+<h2>6 Discussion</h2>
+<p>This section explores feedback raised in review.</p>
+<p>Q: Why might the signedness of the result of unary <code>operator+</code> be signed, even when the input is unsigned?</p>
+<p>A: The reason to consider returning a signed result is symetry. When using native integers, <code>-1U</code> is <code>0xffffffffU</code>.
+ In other words, both signed and unsigned fundamental types return the 
+same signedness for unary plus and minus. In the case of unsigned 
+integers, it gives us the much-lamented off-by-4.3-billion error. 
+However, there is little reason to make the result signed in the case of
+ unary <code>operator+</code>.</p>
+<p>Q: If converting from unsigned to signed, shouldn't the number of 
+bits be increased by one in case the unsigned number coming in can't 
+fit?</p>
+<p>A: The incoming number is guaranteed to fit for two reasons: Firstly, <code>Digits</code> does not include the sign bit so the type will be a bit wider but <code>Digits</code> will remain unchanged. Secondly, signed <code>elastic_integer</code> has a symetric range around zero, i.e. the most negative number is not a valid value. (See section 2.4 for more details.)</p>
+<p>Q: Why don't post and pre-increment, post and pre-decrement and compound assignment operators return wider types?</p>
+<p>A: <code>elastic_integer</code> returns a wider type when it is 
+opportune to do so but it cannot perform miracles. The pre/post and 
+compount assignment operators mutate the value passed to them so 
+returning a wider type is either partially or totally futile. (See 
+section 4.1.1 for details.)</p>
+<p>Q: Why are mutating operators such as pre-increment and compound assignment marked as <code>constexpr</code>.</p>
+<p>A: So they can be used in constant expressions. (<a href="https://godbolt.org/g/qmKbST">Example</a>)</p>
+<h2>7 Acknowledgements</h2>
+<p>Thanks to Arthur O'Dwyer for advice on customization points.</p>
+
+
+</body></html>
